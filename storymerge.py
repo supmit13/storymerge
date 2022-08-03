@@ -208,7 +208,7 @@ if __name__ == "__main__":
 """
 # Run: python storymerge.py "/home/supmit/work/storymerge/sometextfile.txt"
 # OR
-# python storymerge.py
+# Run: python storymerge.py
 # Developed by Supriyo Mitra
 # Date: 03-08-2022
 
