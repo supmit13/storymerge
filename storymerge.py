@@ -24,16 +24,33 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
 
 
 def addtextonmp4stream(mp4file, textstring, outputmp4):
-    cmd = "ffmpeg -i %s -vf \"drawtext=text='%s':fontcolor=white:fontsize=20:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=(h-text_h)/2\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
-    subprocess.call(cmd, shell=True)
+    #cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':fontcolor=white:fontsize=20:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=(h-text_h)/2\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+    textparts = textstring.split("\n") # Check if it is multiline text... if so, join it using asterisks ('*')
+    if textparts.__len__() > 1:
+        textstring = "  ".join(textparts)
+    cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+    try:
+        retcode = subprocess.call(cmd, shell=True)
+        if retcode != 0:
+            print("\n\nffmpeg returned non-zero return code... %s\n\n"%retcode)
+            textstring = "\n".join(textparts)
+            cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+            subprocess.call(cmd, shell=True)
+    except: # Simply copy the input file to the output file
+        fi = open(mp4file, "rb")
+        mp4content = fi.read()
+        fi.close()
+        fo = open(outputmp4, "wb")
+        fo.write(mp4content)
+        fo.close()
     return outputmp4
 
 
 def list_youtube_videos(searchkey, maxresults=10):
     api_service_name = "youtube"
     api_version = "v3"
-    #DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
-    DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
+    DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
+    #DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
     youtube = googleapiclient.discovery.build(api_service_name, api_version, developerKey = DEVELOPER_KEY)
     request = youtube.search().list(
         part="id,snippet",
@@ -58,15 +75,16 @@ def downloadvideo(videourl, downloadpath):
     yt = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
     try:
         yt.download(downloadpath)
+        #time.sleep(3) # Wait for 3 seconds for the file to get downloaded.
     except:
-        print("Error: ")
+        print("Error: %s"%sys.exc_info()[1].__str__())
     videofiles = glob.glob(downloadpath + os.path.sep + "*.mp4")
     if videofiles.__len__() > 0:
         videopath = videofiles[0]
     else:
         videopath = ""
     newvideopath = videopath.replace(" ", "_")
-    newvideopath = newvideopath.replace("(", "").replace(")", "").replace("-", "_").replace("?", "").replace(",", "")
+    newvideopath = newvideopath.replace("(", "").replace(")", "").replace("?", "").replace(",", "")
     fv = open(videopath, "rb")
     vidcontent = fv.read()
     fv.close()
@@ -119,23 +137,29 @@ def readandsegmenttext(filename):
 
 
 if __name__ == "__main__":
-    textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
+    textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
+    #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
+    #textfile = os.getcwd() + os.path.sep + "top-5-questions-about-cancer.txt"
     if sys.argv.__len__() > 1:
         textfile = sys.argv[1]
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     outpath = vidpath + os.path.sep + "outvideo.mp4"
     for segment in segmentslist:
-        videoslist = list_youtube_videos(segment['header'], 1)
+        videoslist = list_youtube_videos(segment['header'], 3) # Get 3 video links: sometimes one of the links could be non-mp4 file.
         if not os.path.exists(vidpath):
             os.makedirs(vidpath)
         for vid in videoslist:
             videourl = "https://www.youtube.com/watch?v=" + vid['videoid']
             downloadpath = vidpath + os.path.sep + vid['videoid']
             videopath = downloadvideo(videourl, downloadpath)
+            vflag = 0
             if not os.path.exists(outpath):
                 videowithtextpath = videopath.split(".")[0] + "_wtxt.mp4"
-                segmentcontent = segment['content'][:100] + "..." # Get first 100 characters
+                if segment['content'].__len__() > 100:
+                    segmentcontent = segment['content'][:100] + "..." # Get first 100 characters
+                else:
+                    segmentcontent = segment['content']
                 addtextonmp4stream(videopath, segmentcontent, videowithtextpath)
                 fv = open(videowithtextpath, "rb")
                 vidcontent = fv.read()
@@ -143,9 +167,13 @@ if __name__ == "__main__":
                 fo = open(outpath, "wb")
                 fo.write(vidcontent)
                 fo.close()
+                vflag = 1
             else:
                 videowithtextpath = videopath.split(".")[0] + "_wtxt.mp4"
-                segmentcontent = segment['content'][:100] + "..." # Get first 100 characters
+                if segment['content'].__len__() > 100:
+                    segmentcontent = segment['content'][:100] + "..." # Get first 100 characters
+                else:
+                    segmentcontent = segment['content']
                 addtextonmp4stream(videopath, segmentcontent, videowithtextpath)
                 outpathparts = outpath.split(".")
                 newoutpath = outpathparts[0] + "_tmp.mp4"
@@ -158,10 +186,26 @@ if __name__ == "__main__":
                     fo.write(vidcontent)
                     fo.close()
                     os.unlink(newoutpath)
+                    vflag = 1
                 except:
                     print("Error: %s"%sys.exc_info()[1].__str__())
-            os.unlink(videowithtextpath)
-            break
+                    vflag = 0
+                    outsize = os.path.getsize(outpath)
+                    if outsize == 0: # This is the first output from stream... somehow, the actual first output was not dumped in the outfile.
+                        fwt = open(videowithtextpath, "rb")
+                        vwtcontent = fwt.read()
+                        fwt.close()
+                        fo = open(outpath, "wb")
+                        fo.write(vwtcontent)
+                        fo.close()
+                    else:
+                        pass
+            try:
+                os.unlink(videowithtextpath)
+            except:
+                pass
+            if vflag == 1:
+                break
     print("Done!")
 
 
