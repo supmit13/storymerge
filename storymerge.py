@@ -18,8 +18,25 @@ def v_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
 
 
 def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
-    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" %s"%(mp4file_1, mp4file_2, mp4outfile)
+    tmpfile1 = mp4file_1.split(".")[0] + "_concat.mp4"
+    fi = open(mp4file_1, "rb")
+    file1content = fi.read()
+    fi.close()
+    fo = open(tmpfile1, "wb")
+    fo.write(file1content)
+    fo.close()
+    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" %s"%(tmpfile1, mp4file_2, mp4outfile)
     subprocess.call(cmd, shell=True)
+    # If mp4outfile exists and it size is > 0, then remove tmpfile1. Else, rename mp4file_1 to mp4outfile and remove tmpfile1.
+    if os.path.exists(mp4outfile) and os.path.getsize(mp4outfile) > 0:
+        os.unlink(tmpfile1)
+    else:
+        try:
+            os.rename(mp4file_1, mp4outfile)
+            os.unlink(tmpfile1)
+        except:
+            print("Error: %s"%sys.exc_info()[1].__str__())
+            print("You will have temporary files in the system after this operation. Please remove them manually.")
     return mp4outfile
 
 
@@ -44,6 +61,50 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
         fo.write(mp4content)
         fo.close()
     return outputmp4
+
+"""
+This function cuts the input mp4 file at 'timespan' seconds from the start. outmp4 is the resulting mp4 stream.
+"""
+def trimvideostream(inputmp4, outmp4, timespan=60):
+    # First thing, we move the moov atom to the begining of the file.
+    moovfile = inputmp4.split(".")[0] + "_moov.mp4"
+    cmd = "ffmpeg -i %s -c:v copy -c:a copy -movflags faststart %s"%(inputmp4, moovfile)
+    subprocess.call(cmd, shell=True)
+    tmin, tsec = "00", "00"
+    if int(timespan) > 60:
+        tmin = int(timespan)/60
+        tsec = int((float(timespan)/60.00 - tmin) * 60)
+    else:
+        tmin = "00"
+        tsec = timespan
+    if str(tmin).__len__() < 2:
+        tmin = "0" + str(tmin)
+    if str(tsec).__len__() < 2:
+        tsec = "0" + str(tsec)
+    cmd = "ffmpeg -i %s -t 00:%s:%s -c:v copy -c:a copy %s"%(moovfile, tmin, tsec, outmp4)
+    subprocess.call(cmd, shell=True)
+    # Now get the duration of the video
+    cmd = "ffprobe -loglevel error -show_entries format=duration -of default=nk=1:nw=1 \"%s\""%outmp4
+    try:
+        outstr = subprocess.check_output(cmd, shell=True)
+        outstr = outstr.decode('utf-8')
+        outstr = outstr.replace("\n", "").replace("\r", "")
+        duration = round(float(outstr))
+        # Now apply a fade out of 2 second at the end of the video. Both video and audio will fade out.
+        fadeoutfile = outmp4.split(".")[0] + "_fadeout.mp4"
+        fadestarttime = duration - 2
+        cmd = "ffmpeg -i %s -filter_complex \"[0:v]fade=type=out:duration=2:start_time=%s[v];[0:a]afade=type=out:duration=2:start_time=%s[a]\" -map \"[v]\" -map \"[a]\" %s"%(outmp4, str(fadestarttime), str(fadestarttime), fadeoutfile)
+        subprocess.call(cmd, shell=True)
+        # Rename the fadeout file to outmp4 file name.
+        os.rename(fadeoutfile, outmp4)
+    except: # For some reason, if we can't fade out, then return the original cut file.
+        print("Could not add fade out in trimmed file. Error: %s"%sys.exc_info()[1].__str__())
+    if not os.path.exists(outmp4) or os.path.getsize(outmp4) == 0:
+        os.rename(moovfile, outmp4) # If outmp4 doesn't exist, then send back the moovfile as outmp4
+    else:
+        # Remove the moov file
+        os.unlink(moovfile)
+    return outmp4
 
 
 def list_youtube_videos(searchkey, maxresults=10):
@@ -84,7 +145,7 @@ def downloadvideo(videourl, downloadpath):
     else:
         videopath = ""
     newvideopath = videopath.replace(" ", "_")
-    newvideopath = newvideopath.replace("(", "").replace(")", "").replace("?", "").replace(",", "")
+    newvideopath = newvideopath.replace("(", "").replace(")", "").replace("?", "").replace(",", "").replace("&", "and").replace("'", "").replace('"', "")
     fv = open(videopath, "rb")
     vidcontent = fv.read()
     fv.close()
@@ -134,10 +195,22 @@ def readandsegmenttext(filename):
     return segmentslist
 
 
+def computetimespanfromcontent(content):
+    wordslist = re.split(re.compile("\s+", re.DOTALL), content)
+    noofwords = wordslist.__len__()
+    timeperchunk = 6 # 6 seconds per chunk (which is 10 words)
+    chunksize = 10
+    chunkcount = noofwords/chunksize
+    totaltime = chunkcount * timeperchunk # This is only a *very rough* estimate.
+    return totaltime
+
+
 
 
 if __name__ == "__main__":
-    textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
+    #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
+    textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
+    #textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
     #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
     #textfile = os.getcwd() + os.path.sep + "top-5-questions-about-cancer.txt"
     if sys.argv.__len__() > 1:
@@ -145,23 +218,27 @@ if __name__ == "__main__":
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     outpath = vidpath + os.path.sep + "outvideo.mp4"
+    uniquedict = {}
     for segment in segmentslist:
         videoslist = list_youtube_videos(segment['header'], 3) # Get 3 video links: sometimes one of the links could be non-mp4 file.
         if not os.path.exists(vidpath):
             os.makedirs(vidpath)
         for vid in videoslist:
+            if vid['videoid'] in uniquedict.keys():
+                continue
             videourl = "https://www.youtube.com/watch?v=" + vid['videoid']
             downloadpath = vidpath + os.path.sep + vid['videoid']
             videopath = downloadvideo(videourl, downloadpath)
             vflag = 0
             if not os.path.exists(outpath):
                 videowithtextpath = videopath.split(".")[0] + "_wtxt.mp4"
-                if segment['content'].__len__() > 100:
-                    segmentcontent = segment['content'][:100] + "..." # Get first 100 characters
-                else:
-                    segmentcontent = segment['content']
+                segmentcontent = segment['content']
                 addtextonmp4stream(videopath, segmentcontent, videowithtextpath)
-                fv = open(videowithtextpath, "rb")
+                # Chop stream after ts seconds.. and send it to a new file.
+                choppedvideopath = videowithtextpath.split(".")[0] + "_trmd.mp4"
+                ts = computetimespanfromcontent(segmentcontent)
+                trimvideostream(videowithtextpath, choppedvideopath, ts)
+                fv = open(choppedvideopath, "rb")
                 vidcontent = fv.read()
                 fv.close()
                 fo = open(outpath, "wb")
@@ -170,15 +247,21 @@ if __name__ == "__main__":
                 vflag = 1
             else:
                 videowithtextpath = videopath.split(".")[0] + "_wtxt.mp4"
-                if segment['content'].__len__() > 100:
-                    segmentcontent = segment['content'][:100] + "..." # Get first 100 characters
-                else:
-                    segmentcontent = segment['content']
+                segmentcontent = segment['content']
+                # Add text on stream
                 addtextonmp4stream(videopath, segmentcontent, videowithtextpath)
+                # Chop stream after ts seconds.. and send it to a new file.
+                choppedvideopath = videowithtextpath.split(".")[0] + "_trmd.mp4"
+                ts = computetimespanfromcontent(segmentcontent)
+                trimvideostream(videowithtextpath, choppedvideopath, ts)
                 outpathparts = outpath.split(".")
                 newoutpath = outpathparts[0] + "_tmp.mp4"
                 try:
-                    newoutpath = va_concatmp4streams(outpath, videowithtextpath, newoutpath)
+                    # Not all streams can be trimmed... so if we don't have a trimmed file, we use the entire file with text.
+                    if os.path.exists(choppedvideopath) and os.path.getsize(choppedvideopath) > 0:
+                        newoutpath = va_concatmp4streams(outpath, choppedvideopath, newoutpath)
+                    else:
+                        newoutpath = va_concatmp4streams(outpath, videowithtextpath, newoutpath)
                     fv = open(newoutpath, "rb")
                     vidcontent = fv.read()
                     fv.close()
@@ -192,7 +275,7 @@ if __name__ == "__main__":
                     vflag = 0
                     outsize = os.path.getsize(outpath)
                     if outsize == 0: # This is the first output from stream... somehow, the actual first output was not dumped in the outfile.
-                        fwt = open(videowithtextpath, "rb")
+                        fwt = open(choppedvideopath, "rb")
                         vwtcontent = fwt.read()
                         fwt.close()
                         fo = open(outpath, "wb")
@@ -202,57 +285,24 @@ if __name__ == "__main__":
                         pass
             try:
                 os.unlink(videowithtextpath)
+                os.unlink(choppedvideopath)
             except:
                 pass
             if vflag == 1:
+                uniquedict[vid['videoid']] = 1
                 break
     print("Done!")
 
-
-"""
-if __name__ == "__main__":
-    textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
-    segmentslist = readandsegmenttext(textfile)
-    vidpath = os.getcwd() + os.path.sep + "videos"
-    outpath = vidpath + os.path.sep + "outvideo.mp4"
-    videodirs = glob.glob(vidpath + os.path.sep + "*")
-    for segment in segmentslist:
-        #print(segment['header'] + " : " + segment['content'])
-        if videodirs.__len__() == 0:
-            break
-        viddir = videodirs.pop()
-        videoslist = glob.glob(viddir + os.path.sep + "*.mp4")
-        if not os.path.exists(vidpath):
-            os.makedirs(vidpath)
-        for vid in videoslist:
-            #videourl = "https://www.youtube.com/watch?v=" + vid['videoid']
-            #downloadpath = vidpath + os.path.sep + vid['videoid']
-            #videopath = downloadvideo(videourl, downloadpath)
-            videopath = videoslist[0]
-            if not os.path.exists(outpath):
-                fv = open(videopath, "rb")
-                vidcontent = fv.read()
-                fv.close()
-                fo = open(outpath, "wb")
-                fo.write(vidcontent)
-                fo.close()
-            else:
-                outpathparts = outpath.split(".")
-                newoutpath = outpathparts[0] + "_tmp.mp4"
-                newoutpath = va_concatmp4streams(outpath, videopath, newoutpath)
-                fv = open(newoutpath, "rb")
-                vidcontent = fv.read()
-                fv.close()
-                fo = open(outpath, "wb")
-                fo.write(vidcontent)
-                fo.close()
-                os.unlink(newoutpath)
-            break
-    print("Done!")
-"""
 # Run: python storymerge.py "/home/supmit/work/storymerge/sometextfile.txt"
 # OR
 # Run: python storymerge.py
 # Developed by Supriyo Mitra
 # Date: 03-08-2022
+"""
+References:
+https://shotstack.io/learn/use-ffmpeg-to-trim-video/
+https://askubuntu.com/questions/1128754/how-do-i-add-a-1-second-fade-out-effect-to-the-end-of-a-video-with-ffmpeg
+
+"""
+
 
