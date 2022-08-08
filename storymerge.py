@@ -45,13 +45,13 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
     textparts = textstring.split("\n") # Check if it is multiline text... if so, join it using asterisks ('*')
     if textparts.__len__() > 1:
         textstring = "  ".join(textparts)
-    cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+    cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:font='DejaVuSans-Bold':fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
     try:
         retcode = subprocess.call(cmd, shell=True)
         if retcode != 0:
             print("\n\nffmpeg returned non-zero return code... %s\n\n"%retcode)
             textstring = "\n".join(textparts)
-            cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+            cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:font='DejaVuSans-Bold':fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
             subprocess.call(cmd, shell=True)
     except: # Simply copy the input file to the output file
         fi = open(mp4file, "rb")
@@ -61,6 +61,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
         fo.write(mp4content)
         fo.close()
     return outputmp4
+
 
 """
 This function cuts the input mp4 file at 'timespan' seconds from the start. outmp4 is the resulting mp4 stream.
@@ -81,7 +82,8 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
         tmin = "0" + str(tmin)
     if str(tsec).__len__() < 2:
         tsec = "0" + str(tsec)
-    cmd = "ffmpeg -i %s -t 00:%s:%s -c:v copy -c:a copy %s"%(moovfile, tmin, tsec, outmp4)
+    # Make a cut at 00:tmin:tsec (Should we care about hour?)
+    cmd = "ffmpeg -ss 00:00:00 -i %s -c:v copy -c:a copy -to 00:%s:%s %s"%(moovfile, tmin, tsec, outmp4)
     subprocess.call(cmd, shell=True)
     # Now get the duration of the video
     cmd = "ffprobe -loglevel error -show_entries format=duration -of default=nk=1:nw=1 \"%s\""%outmp4
@@ -105,6 +107,12 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
         # Remove the moov file
         os.unlink(moovfile)
     return outmp4
+
+
+def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
+    cmd = "ffmpeg -i %s -i %s -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 %s"%(inputmp4, inputwav, outputmp4)
+    subprocess.call(cmd, shell=True)
+    return outputmp4
 
 
 def list_youtube_videos(searchkey, maxresults=10):
@@ -208,13 +216,17 @@ def computetimespanfromcontent(content):
 
 
 if __name__ == "__main__":
-    #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
-    textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
+    inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
+    #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
+    textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
+    #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
     #textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
     #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
     #textfile = os.getcwd() + os.path.sep + "top-5-questions-about-cancer.txt"
     if sys.argv.__len__() > 1:
         textfile = sys.argv[1]
+    if sys.argv.__len__() > 2:
+        inaudio = sys.argv[2]
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     outpath = vidpath + os.path.sep + "outvideo.mp4"
@@ -291,6 +303,9 @@ if __name__ == "__main__":
             if vflag == 1:
                 uniquedict[vid['videoid']] = 1
                 break
+    # Now, add voiceover track on outpath video
+    outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
+    addvoiceoveraudio(outpath, inaudio, outvoiceoverpath)
     print("Done!")
 
 # Run: python storymerge.py "/home/supmit/work/storymerge/sometextfile.txt"
