@@ -9,6 +9,7 @@ import pyaudio
 
 import googleapiclient.discovery
 from pytube import YouTube
+from google.cloud import texttospeech
 
 
 def v_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
@@ -115,6 +116,20 @@ def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
     return outputmp4
 
 
+def getaudiofromtext(textstr):
+    #wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
+    client = texttospeech.TextToSpeechClient()
+    synthesis_input = texttospeech.SynthesisInput(text=textstr)
+    voice = texttospeech.VoiceSelectionParams(language_code="en-US", ssml_gender=texttospeech.SsmlVoiceGender.FEMALE)
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
+    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
+    with open(outaudiofile, "wb") as out:
+        out.write(response.audio_content)
+    print('Audio content written to file "%s"'%outaudiofile)
+    return outaudiofile
+
+
 def list_youtube_videos(searchkey, maxresults=10):
     api_service_name = "youtube"
     api_version = "v3"
@@ -216,7 +231,7 @@ def computetimespanfromcontent(content):
 
 
 if __name__ == "__main__":
-    inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
+    #inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
     #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
     textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
     #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
@@ -303,10 +318,20 @@ if __name__ == "__main__":
             if vflag == 1:
                 uniquedict[vid['videoid']] = 1
                 break
+    # Get the audio from google speech to text
+    fa = open(textfile, "r")
+    textcontent = fa.read()
+    fa.close()
+    inaudio = getaudiofromtext(textcontent)
     # Now, add voiceover track on outpath video
     outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
     addvoiceoveraudio(outpath, inaudio, outvoiceoverpath)
-    print("Done!")
+    if os.path.exists(outvoiceoverpath) and os.path.getsize(outvoiceoverpath) > 0:
+        os.unlink(outpath)
+        os.unlink(inaudio)
+        print("Success!")
+    else:
+        print("Failure!")
 
 # Run: python storymerge.py "/home/supmit/work/storymerge/sometextfile.txt"
 # OR
