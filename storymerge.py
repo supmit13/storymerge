@@ -111,6 +111,25 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
 
 
 def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
+    # First, get audio file duration
+    """
+    cmd = "ffmpeg -i %s -f null -"%inputwav
+    outstr = subprocess.check_output(cmd, shell=True)
+    timepattern = re.compile("time=(\d{2})\:(\d{2})\:([\d\.]+)\s+")
+    tps = re.search(timepattern, str(outstr))
+    hh, mm, ss = 0, 0, 0
+    totaltimeinsecs = None
+    if tps:
+        hh = int(tps.groups()[0])
+        mm = int(tps.groups()[1])
+        ss = round(float(tps.groups()[2]))
+        totaltimeinsecs = hh*3600 + mm*60 + ss + 5 # Add 5 seconds at the end.
+    # Cut the video file at this mark if totaltimeinsecs is not None
+    trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
+    if totaltimeinsecs is not None:
+        trimvideostream(inputmp4, trimmedvideofile, totaltimeinsecs)
+        os.rename(trimmedvideofile, inputmp4)
+    """
     cmd = "ffmpeg -i %s -i %s -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 %s"%(inputmp4, inputwav, outputmp4)
     subprocess.call(cmd, shell=True)
     return outputmp4
@@ -232,8 +251,8 @@ def computetimespanfromcontent(content):
 
 if __name__ == "__main__":
     #inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
-    #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
-    textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
+    textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
+    #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
     #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
     #textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
     #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
@@ -333,16 +352,21 @@ if __name__ == "__main__":
     else:
         print("Failure!")
 
+# $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
 # Run: python storymerge.py "/home/supmit/work/storymerge/sometextfile.txt"
 # OR
 # Run: python storymerge.py
-# Developed by Supriyo Mitra
+# Developer: Supriyo Mitra
 # Date: 03-08-2022
 """
 References:
+https://stackoverflow.com/questions/17623676/text-on-video-ffmpeg
+https://superuser.com/questions/1026763/scrolling-from-right-to-left-in-ffmpeg-drawtext/1026814#1026814
 https://shotstack.io/learn/use-ffmpeg-to-trim-video/
 https://askubuntu.com/questions/1128754/how-do-i-add-a-1-second-fade-out-effect-to-the-end-of-a-video-with-ffmpeg
-
+https://video.stackexchange.com/questions/16516/ffmpeg-first-second-of-cut-video-part-freezed
+https://superuser.com/questions/277642/how-to-merge-audio-and-video-file-in-ffmpeg
+https://cloud.google.com/speech-to-text/docs/encoding
 """
 
 
