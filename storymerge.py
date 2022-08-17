@@ -6,6 +6,8 @@ import simplejson as json
 import subprocess
 import numpy as np
 import pyaudio
+import wave
+import contextlib
 
 import googleapiclient.discovery
 from pytube import YouTube
@@ -74,7 +76,7 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
     subprocess.call(cmd, shell=True)
     tmin, tsec = "00", "00"
     if int(timespan) > 60:
-        tmin = int(timespan)/60
+        tmin = int(timespan/60)
         tsec = int((float(timespan)/60.00 - tmin) * 60)
     else:
         tmin = "00"
@@ -112,24 +114,18 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
 
 def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
     # First, get audio file duration
-    """
-    cmd = "ffmpeg -i %s -f null -"%inputwav
-    outstr = subprocess.check_output(cmd, shell=True)
-    timepattern = re.compile("time=(\d{2})\:(\d{2})\:([\d\.]+)\s+")
-    tps = re.search(timepattern, str(outstr))
-    hh, mm, ss = 0, 0, 0
-    totaltimeinsecs = None
-    if tps:
-        hh = int(tps.groups()[0])
-        mm = int(tps.groups()[1])
-        ss = round(float(tps.groups()[2]))
-        totaltimeinsecs = hh*3600 + mm*60 + ss + 5 # Add 5 seconds at the end.
+    totaltimeinsecs = 0.00
+    with contextlib.closing(wave.open(inputwav,'r')) as f:
+        frames = f.getnframes()
+        rate = f.getframerate()
+        totaltimeinsecs = int(frames / float(rate))
+        totaltimeinsecs += 3 # Add 3 seconds for a graceful closure.
+    print("################## %s ################"%totaltimeinsecs)
     # Cut the video file at this mark if totaltimeinsecs is not None
     trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
     if totaltimeinsecs is not None:
-        trimvideostream(inputmp4, trimmedvideofile, totaltimeinsecs)
+        trimvideostream(inputmp4, trimmedvideofile, int(totaltimeinsecs))
         os.rename(trimmedvideofile, inputmp4)
-    """
     cmd = "ffmpeg -i %s -i %s -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 %s"%(inputmp4, inputwav, outputmp4)
     subprocess.call(cmd, shell=True)
     return outputmp4
