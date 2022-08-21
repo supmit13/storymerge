@@ -45,10 +45,33 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
 
 def addtextonmp4stream(mp4file, textstring, outputmp4):
     #cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':fontcolor=white:fontsize=20:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=(h-text_h)/2\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
-    textparts = textstring.split("\n") # Check if it is multiline text... if so, join it using asterisks ('*')
-    if textparts.__len__() > 1:
-        textstring = "  ".join(textparts)
-    cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:font='DejaVuSans-Bold':fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+    textparts = textstring.split(".") # Check if it is multi-sentence text... we create a .srt file  for using it as subtitle text.
+    subtitlesfile = "./subtitles.srt"
+    fs = open(subtitlesfile, "w")
+    ts = 0
+    tf = 0
+    ctr = 1
+    dt = 8
+    emptyspacespattern = re.compile("^\s*$")
+    for t in textparts:
+        if re.search(emptyspacespattern, t):
+            continue
+        if "\n" in t:
+            t_t = t.split("\n")
+            t = " ".join(t_t)
+        words = t.split(" ")
+        tf = ts + 5
+        if words.__len__() > 8: # If number of words in the line is greater than 8...
+            tf = ts+dt # .. the time for which it would be shown is 8 seconds.
+        else:
+            pass # .. else, it would be visible for 3 seconds only.
+        tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='#0000aa'>%s</font>\n\n"%(ctr, ts, tf, t)
+        ts = tf
+        ctr += 1
+        fs.write(tstr)
+    fs.close()
+    #cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:font='DejaVuSans-Bold':fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+    cmd = "ffmpeg -y -i %s -vf subtitles=%s:force_style='Fontname=DejaVuSans-Bold' -codec:a copy %s"%(mp4file, subtitlesfile, outputmp4)
     try:
         retcode = subprocess.call(cmd, shell=True)
         if retcode != 0:
@@ -63,6 +86,10 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
         fo = open(outputmp4, "wb")
         fo.write(mp4content)
         fo.close()
+    try:
+        os.unlink(subtitlesfile)
+    except:
+        pass
     return outputmp4
 
 
