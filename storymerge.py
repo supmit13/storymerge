@@ -13,9 +13,17 @@ import googleapiclient.discovery
 from pytube import YouTube
 from google.cloud import texttospeech
 
+# TODO: 
+"""
+1. Organize real-input.txt to the discussed text script rules.
+2. Sync text script overlay with voice over track.
+3. Modify function 'getaudiofromtext' to retrieve voice over track for a given text from Sergey's ReST API.
+4. Investigate and fix the issue of video stream freezing. (priority)
+"""
+
 
 def v_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
-    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [1:v] concat=n=2:v=1 [v]\" -map \"[v]\" %s"%(mp4file_1, mp4file_2, mp4outfile)
+    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [1:v] concat=n=2:v=1 [v]\" -map \"[v]\" -pix_fmt yuv420p %s"%(mp4file_1, mp4file_2, mp4outfile)
     subprocess.call(cmd, shell=True)
     return mp4outfile
 
@@ -28,7 +36,7 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     fo = open(tmpfile1, "wb")
     fo.write(file1content)
     fo.close()
-    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" %s"%(tmpfile1, mp4file_2, mp4outfile)
+    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
     subprocess.call(cmd, shell=True)
     # If mp4outfile exists and it size is > 0, then remove tmpfile1. Else, rename mp4file_1 to mp4outfile and remove tmpfile1.
     if os.path.exists(mp4outfile) and os.path.getsize(mp4outfile) > 0:
@@ -77,7 +85,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
         if retcode != 0:
             print("\n\nffmpeg returned non-zero return code... %s\n\n"%retcode)
             textstring = "\n".join(textparts)
-            cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:font='DejaVuSans-Bold':fontcolor=black:fontsize=40:\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
+            cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':y=(h-text_h)/2:x=w-(t-1.5)*w/5.5:font='DejaVuSans-Bold':fontcolor=black:fontsize=40:\"  -strict -2 -preset slow -pix_fmt yuv420p -codec:a copy %s"%(mp4file, textstring, outputmp4)
             subprocess.call(cmd, shell=True)
     except: # Simply copy the input file to the output file
         fi = open(mp4file, "rb")
@@ -113,7 +121,7 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
     if str(tsec).__len__() < 2:
         tsec = "0" + str(tsec)
     # Make a cut at 00:tmin:tsec (Should we care about hour?)
-    cmd = "ffmpeg -ss 00:00:00 -i %s -c:v copy -c:a copy -to 00:%s:%s %s"%(moovfile, tmin, tsec, outmp4)
+    cmd = "ffmpeg -ss 00:00:00 -i %s -c:v copy -c:a copy -to 00:%s:%s -avoid_negative_ts make_zero -strict -2 -preset slow -pix_fmt yuv420p %s"%(moovfile, tmin, tsec, outmp4)
     subprocess.call(cmd, shell=True)
     # Now get the duration of the video
     cmd = "ffprobe -loglevel error -show_entries format=duration -of default=nk=1:nw=1 \"%s\""%outmp4
@@ -125,7 +133,7 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
         # Now apply a fade out of 2 second at the end of the video. Both video and audio will fade out.
         fadeoutfile = outmp4.split(".")[0] + "_fadeout.mp4"
         fadestarttime = duration - 2
-        cmd = "ffmpeg -i %s -filter_complex \"[0:v]fade=type=out:duration=2:start_time=%s[v];[0:a]afade=type=out:duration=2:start_time=%s[a]\" -map \"[v]\" -map \"[a]\" %s"%(outmp4, str(fadestarttime), str(fadestarttime), fadeoutfile)
+        cmd = "ffmpeg -i %s -filter_complex \"[0:v]fade=type=out:duration=2:start_time=%s[v];[0:a]afade=type=out:duration=2:start_time=%s[a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(outmp4, str(fadestarttime), str(fadestarttime), fadeoutfile)
         subprocess.call(cmd, shell=True)
         # Rename the fadeout file to outmp4 file name.
         os.rename(fadeoutfile, outmp4)
@@ -153,7 +161,7 @@ def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
     if totaltimeinsecs is not None:
         trimvideostream(inputmp4, trimmedvideofile, int(totaltimeinsecs))
         os.rename(trimmedvideofile, inputmp4)
-    cmd = "ffmpeg -i %s -i %s -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 %s"%(inputmp4, inputwav, outputmp4)
+    cmd = "ffmpeg -i %s -i %s -muxdelay 0 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict -2 -preset slow -pix_fmt yuv420p -copyts %s"%(inputmp4, inputwav, outputmp4)
     subprocess.call(cmd, shell=True)
     return outputmp4
 
@@ -274,9 +282,9 @@ def computetimespanfromcontent(content):
 
 if __name__ == "__main__":
     #inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
-    textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
+    #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
     #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
-    #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
+    textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
     #textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
     #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
     #textfile = os.getcwd() + os.path.sep + "top-5-questions-about-cancer.txt"
@@ -376,7 +384,7 @@ if __name__ == "__main__":
         print("Failure!")
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
-# Run: python storymerge.py "/home/supmit/work/storymerge/sometextfile.txt"
+# Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt" "/home/supmit/work/storymerge/audio/votrack.mp3"
 # OR
 # Run: python storymerge.py
 # Developer: Supriyo Mitra
