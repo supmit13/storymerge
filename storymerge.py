@@ -1,6 +1,7 @@
 import os, sys, re, time
 import datetime
 import glob
+import shutil
 
 import simplejson as json
 import subprocess
@@ -8,6 +9,8 @@ import numpy as np
 import pyaudio
 import wave
 import contextlib
+import urllib, requests
+from urllib.parse import urlencode
 
 import googleapiclient.discovery
 from pytube import YouTube
@@ -18,7 +21,7 @@ from google.cloud import texttospeech
 1. Organize real-input.txt to the discussed text script rules.
 2. Sync text script overlay with voice over track.
 3. Modify function 'getaudiofromtext' to retrieve voice over track for a given text from Sergey's ReST API.
-4. Investigate and fix the issue of video stream freezing. (priority)
+4. Investigate and fix the issue of video stream freezing. (priority) [Improved after adding '-strict', '-preset', and '-pix_fmt'.]
 """
 
 
@@ -168,6 +171,7 @@ def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
 
 def getaudiofromtext(textstr):
     #wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
+    """
     client = texttospeech.TextToSpeechClient()
     synthesis_input = texttospeech.SynthesisInput(text=textstr)
     voice = texttospeech.VoiceSelectionParams(language_code="en-US", ssml_gender=texttospeech.SsmlVoiceGender.FEMALE)
@@ -177,6 +181,23 @@ def getaudiofromtext(textstr):
     with open(outaudiofile, "wb") as out:
         out.write(response.audio_content)
     print('Audio content written to file "%s"'%outaudiofile)
+    return outaudiofile
+    """
+    voiceurl = "https://regios.org/wavenet/wavenet-gen.php"
+    postdict = {"input" : textstr}
+    postdata = urlencode(postdict)
+    httpheaders = {'accept' : '*/*', 'accept-encoding' : 'gzip,deflate', 'content-type' : 'text/plain',}
+    httpheaders['content-length'] = str(postdata.__len__())
+    response = requests.post(voiceurl, data=postdata, headers=httpheaders, stream=True)
+    if response.status_code == 200:
+        outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".mp3"
+        out = open(outaudiofile, "wb")
+        response.raw.decode_content = True
+        shutil.copyfileobj(response.raw, out)
+        out.close()
+        print("Successfully retrieved audio file")
+    else:
+        return None
     return outaudiofile
 
 
@@ -261,7 +282,10 @@ def readandsegmenttext(filename):
             segment = {'header' : segmenthead, 'content' : ''}
         else:
             segmentcontent = line
-            segment['content'] += "\n" + segmentcontent
+            if segment is not None:
+                segment['content'] += "\n" + segmentcontent
+            else:
+                segment = {'header' : os.path.basename(filename).split(".")[0], 'content' : segmentcontent}
     # Append the last segment processed
     if segment is not None:
         segmentslist.append(segment)
@@ -284,10 +308,11 @@ if __name__ == "__main__":
     #inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
     #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
     #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
-    textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
+    #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
     #textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
     #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
     #textfile = os.getcwd() + os.path.sep + "top-5-questions-about-cancer.txt"
+    textfile = os.getcwd() + os.path.sep + "real-input.txt"
     if sys.argv.__len__() > 1:
         textfile = sys.argv[1]
     if sys.argv.__len__() > 2:
@@ -373,6 +398,9 @@ if __name__ == "__main__":
     textcontent = fa.read()
     fa.close()
     inaudio = getaudiofromtext(textcontent)
+    if not inaudio:
+        print("Failed! Could not retrieve audio from the source")
+        sys.exit()
     # Now, add voiceover track on outpath video
     outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
     addvoiceoveraudio(outpath, inaudio, outvoiceoverpath)
