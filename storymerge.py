@@ -16,6 +16,8 @@ import googleapiclient.discovery
 from pytube import YouTube
 from google.cloud import texttospeech
 
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
+
 # TODO: 
 """
 1. Organize real-input.txt to the discussed text script rules.
@@ -150,14 +152,27 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
     return outmp4
 
 
+def getaudioduration(audfile):
+    cmd = "ffprobe -v error -select_streams a:0 -show_entries stream=duration -of default=noprint_wrappers=1:nokey=1 %s"%audfile
+    try:
+        outstr = subprocess.check_output(cmd, shell=True)
+    except:
+        print("Could not find the duration of '%s' - Error: %s"%(vidfile, sys.exc_info()[1].__str__()))
+        return -1
+    outstr = outstr.decode('utf-8')
+    outstr = outstr.replace("\n", "").replace("\r", "")
+    wspattern = re.compile("\s*", re.DOTALL)
+    outstr = wspattern.sub("", outstr)
+    durationinseconds = float(outstr)
+    return durationinseconds
+
+
+
 def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
     # First, get audio file duration
     totaltimeinsecs = 0.00
-    with contextlib.closing(wave.open(inputwav,'r')) as f:
-        frames = f.getnframes()
-        rate = f.getframerate()
-        totaltimeinsecs = int(frames / float(rate))
-        totaltimeinsecs += 3 # Add 3 seconds for a graceful closure.
+    totaltimeinsecs = getaudioduration(inputwav)
+    totaltimeinsecs = int(totaltimeinsecs) + 3 # Add 3 seconds for a graceful closedown
     print("################## %s ################"%totaltimeinsecs)
     # Cut the video file at this mark if totaltimeinsecs is not None
     trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
@@ -170,27 +185,15 @@ def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
 
 
 def getaudiofromtext(textstr):
-    #wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
-    """
-    client = texttospeech.TextToSpeechClient()
-    synthesis_input = texttospeech.SynthesisInput(text=textstr)
-    voice = texttospeech.VoiceSelectionParams(language_code="en-US", ssml_gender=texttospeech.SsmlVoiceGender.FEMALE)
-    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
-    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
-    outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
-    with open(outaudiofile, "wb") as out:
-        out.write(response.audio_content)
-    print('Audio content written to file "%s"'%outaudiofile)
-    return outaudiofile
-    """
     voiceurl = "https://regios.org/wavenet/wavenet-gen.php"
     postdict = {"input" : textstr}
-    postdata = urlencode(postdict)
-    httpheaders = {'accept' : '*/*', 'accept-encoding' : 'gzip,deflate', 'content-type' : 'text/plain',}
+    postdata = urlencode(postdict) # Need to do this to get the length of the content
+    httpheaders = {'accept' : 'audio/mpeg', 'accept-encoding' : 'gzip,deflate',}
+    #httpheaders['content-type'] = "application/x-www-form-urlencoded"
     httpheaders['content-length'] = str(postdata.__len__())
-    response = requests.post(voiceurl, data=postdata, headers=httpheaders, stream=True)
+    response = requests.post(voiceurl, data=postdict, headers=httpheaders, stream=True)
     if response.status_code == 200:
-        outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".mp3"
+        outaudiofile = time.strftime("%Y%m%d%H%M%S_wavenet_audio",time.localtime()) + ".mp3"
         out = open(outaudiofile, "wb")
         response.raw.decode_content = True
         shutil.copyfileobj(response.raw, out)
