@@ -6,24 +6,25 @@ import shutil
 import simplejson as json
 import subprocess
 import numpy as np
-import pyaudio
-import wave
-import contextlib
 import urllib, requests
 from urllib.parse import urlencode
 
 import googleapiclient.discovery
 from pytube import YouTube
-from google.cloud import texttospeech
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
 
+"""
+Dependencies: ffmpeg, python3, GOOGLE_APPLICATION_CREDENTIALS, pytube, googleapiclient
+Check requirements.txt for other python modules used.
+"""
+
 # TODO: 
 """
-1. Organize real-input.txt to the discussed text script rules.
-2. Sync text script overlay with voice over track.
-3. Modify function 'getaudiofromtext' to retrieve voice over track for a given text from Sergey's ReST API.
-4. Investigate and fix the issue of video stream freezing. (priority) [Improved after adding '-strict', '-preset', and '-pix_fmt'.]
+1. Organize real-input.txt to the discussed text script rules. [Done]
+2. Sync text script overlay with voice over track. [Done]
+3. Modify function 'getaudiofromtext' to retrieve voice-over track for a given text from Sergey's ReST API. [Done]
+4. Investigate and fix the issue of video stream freezing. (priority) [Improved after adding '-strict', '-preset', and '-pix_fmt'.][Done]
 """
 
 
@@ -78,7 +79,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
             tf = ts+dt # .. the time for which it would be shown is 8 seconds.
         else:
             pass # .. else, it would be visible for 3 seconds only.
-        tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='#0000aa'>%s</font>\n\n"%(ctr, ts, tf, t)
+        tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='&Haa0000&'>%s</font>\n\n"%(ctr, ts, tf, t)
         ts = tf
         ctr += 1
         fs.write(tstr)
@@ -173,7 +174,6 @@ def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
     totaltimeinsecs = 0.00
     totaltimeinsecs = getaudioduration(inputwav)
     totaltimeinsecs = int(totaltimeinsecs) + 3 # Add 3 seconds for a graceful closedown
-    #print("################## %s ################"%totaltimeinsecs)
     # Cut the video file at this mark if totaltimeinsecs is not None
     trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
     if totaltimeinsecs is not None:
@@ -188,8 +188,7 @@ def getaudiofromtext(textstr):
     voiceurl = "https://regios.org/wavenet/wavenet-gen.php"
     postdict = {"input" : textstr}
     postdata = urlencode(postdict) # Need to do this to get the length of the content
-    httpheaders = {'accept' : 'audio/mpeg', 'accept-encoding' : 'gzip,deflate',}
-    #httpheaders['content-type'] = "application/x-www-form-urlencoded"
+    httpheaders = {'accept' : 'audio/mpeg', 'accept-encoding' : 'gzip,deflate'}
     httpheaders['content-length'] = str(postdata.__len__())
     response = requests.post(voiceurl, data=postdict, headers=httpheaders, stream=True)
     if response.status_code == 200:
@@ -295,28 +294,33 @@ def readandsegmenttext(filename):
     return segmentslist
 
 
+"""
+A normal English speaker speaks about 120 - 130 words per minute.
+Source: https://www.omnicalculator.com/everyday-life/words-per-minute
+However, based on tests with various storyblocks and their voice over
+audio, I have set it to 100 wpm. Although this is not perfect, it 
+provides the best experience with the subtitles and the voiceover track.
+"""
 def computetimespanfromcontent(content):
     wordslist = re.split(re.compile("\s+", re.DOTALL), content)
     noofwords = wordslist.__len__()
-    timeperchunk = 6 # 6 seconds per chunk (which is 10 words)
+    timeperchunk = 5 # 5 seconds per chunk (which is 10 words)
     chunksize = 10
     chunkcount = noofwords/chunksize
     totaltime = chunkcount * timeperchunk # This is only a *very rough* estimate.
+    if chunkcount > 5: # More than 50 words ...
+        totaltime = totaltime - 3 # ... reduce 3 seconds from computed totaltime. This helps take care of time between sentences.
     return totaltime
 
 
 
-
 if __name__ == "__main__":
-    #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
-    #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
-    #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
-    #textfile = os.getcwd() + os.path.sep + "random-story-text.txt"
-    #textfile = os.getcwd() + os.path.sep + "top-12-questions-about-hypertension.txt"
-    #textfile = os.getcwd() + os.path.sep + "top-5-questions-about-cancer.txt"
-    textfile = os.getcwd() + os.path.sep + "real-input.txt"
+    textfile = os.getcwd() + os.path.sep + "test-input.txt"
     if sys.argv.__len__() > 1:
         textfile = sys.argv[1]
+    if not os.path.exists(textfile):
+        print("Could not find input text block. Quitting.\n")
+        sys.exit()
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     outpath = vidpath + os.path.sep + "outvideo.mp4"
@@ -412,7 +416,7 @@ if __name__ == "__main__":
         print("Failure!")
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
-# Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt" "/home/supmit/work/storymerge/audio/votrack.mp3"
+# Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt"
 # OR
 # Run: python storymerge.py
 # Developer: Supriyo Mitra
@@ -426,6 +430,7 @@ https://askubuntu.com/questions/1128754/how-do-i-add-a-1-second-fade-out-effect-
 https://video.stackexchange.com/questions/16516/ffmpeg-first-second-of-cut-video-part-freezed
 https://superuser.com/questions/277642/how-to-merge-audio-and-video-file-in-ffmpeg
 https://cloud.google.com/speech-to-text/docs/encoding
+
 """
 
 
