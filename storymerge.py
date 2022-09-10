@@ -64,7 +64,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
     ts = 0
     tf = 0
     ctr = 1
-    dt = 8
+    dt = 5
     emptyspacespattern = re.compile("^\s*$")
     for t in textparts:
         if re.search(emptyspacespattern, t):
@@ -73,7 +73,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4):
             t_t = t.split("\n")
             t = " ".join(t_t)
         words = t.split(" ")
-        tf = ts + 5
+        tf = ts + 3
         if words.__len__() > 8: # If number of words in the line is greater than 8...
             tf = ts+dt # .. the time for which it would be shown is 8 seconds.
         else:
@@ -173,7 +173,7 @@ def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
     totaltimeinsecs = 0.00
     totaltimeinsecs = getaudioduration(inputwav)
     totaltimeinsecs = int(totaltimeinsecs) + 3 # Add 3 seconds for a graceful closedown
-    print("################## %s ################"%totaltimeinsecs)
+    #print("################## %s ################"%totaltimeinsecs)
     # Cut the video file at this mark if totaltimeinsecs is not None
     trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
     if totaltimeinsecs is not None:
@@ -308,7 +308,6 @@ def computetimespanfromcontent(content):
 
 
 if __name__ == "__main__":
-    #inaudio = os.getcwd() + os.path.sep + "audio/music02.wav"
     #textfile = os.getcwd() + os.path.sep + "lower-bloodpressure-in-minutes.txt"
     #textfile = os.getcwd() + os.path.sep + "Right-Medication-for-Blood-pressure.txt"
     #textfile = os.getcwd() + os.path.sep + "dash-diet.txt"
@@ -318,8 +317,6 @@ if __name__ == "__main__":
     textfile = os.getcwd() + os.path.sep + "real-input.txt"
     if sys.argv.__len__() > 1:
         textfile = sys.argv[1]
-    if sys.argv.__len__() > 2:
-        inaudio = sys.argv[2]
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     outpath = vidpath + os.path.sep + "outvideo.mp4"
