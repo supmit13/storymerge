@@ -203,6 +203,22 @@ def getaudiofromtext(textstr):
     return outaudiofile
 
 
+
+def getaudiofromtext_google(textstr):
+    #wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
+    client = texttospeech.TextToSpeechClient()
+    synthesis_input = texttospeech.SynthesisInput(text=textstr)
+    # British male voice options: en-GB-Wavenet-B, en-GB-Wavenet-D, en-GB-Standard-B, en-GB-Standard-D . Code for all of them is en-GB.
+    voice = texttospeech.VoiceSelectionParams(language_code="en-GB", name="en-GB-Standard-B", ssml_gender=texttospeech.SsmlVoiceGender.MALE)
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
+    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
+    with open(outaudiofile, "wb") as out:
+        out.write(response.audio_content)
+    print('Audio content written to file "%s"'%outaudiofile)
+    return outaudiofile
+
+
 def list_youtube_videos(searchkey, maxresults=10):
     api_service_name = "youtube"
     api_version = "v3"
@@ -323,6 +339,8 @@ if __name__ == "__main__":
         sys.exit()
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
+    if not os.path.isdir(vidpath):
+        os.makedirs(vidpath, 0o777)
     outpath = vidpath + os.path.sep + "outvideo.mp4"
     uniquedict = {}
     for segment in segmentslist:
@@ -401,7 +419,8 @@ if __name__ == "__main__":
     fa = open(textfile, "r")
     textcontent = fa.read()
     fa.close()
-    inaudio = getaudiofromtext(textcontent)
+    #inaudio = getaudiofromtext(textcontent)
+    inaudio = getaudiofromtext_google(textcontent)
     if not inaudio:
         print("Failed! Could not retrieve audio from the source")
         sys.exit()
