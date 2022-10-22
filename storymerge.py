@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 
 import googleapiclient.discovery
 from pytube import YouTube
+from google.cloud import texttospeech
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
 
@@ -58,7 +59,6 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
 
 
 def addtextonmp4stream(mp4file, textstring, outputmp4):
-    #cmd = "ffmpeg -y -i %s -vf \"drawtext=text='%s':fontcolor=white:fontsize=20:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=(h-text_h)/2\" -codec:a copy %s"%(mp4file, textstring, outputmp4)
     textparts = textstring.split(".") # Check if it is multi-sentence text... we create a .srt file  for using it as subtitle text.
     subtitlesfile = "./subtitles.srt"
     fs = open(subtitlesfile, "w")
@@ -164,22 +164,43 @@ def getaudioduration(audfile):
     outstr = outstr.replace("\n", "").replace("\r", "")
     wspattern = re.compile("\s*", re.DOTALL)
     outstr = wspattern.sub("", outstr)
+    if outstr == 'N/A':
+        outstr = 0
     durationinseconds = float(outstr)
     return durationinseconds
 
 
 
-def addvoiceoveraudio(inputmp4, inputwav, outputmp4):
+def addvoiceoveraudio(inputmp4, inputwav, outputmp4, tstart=0):
     # First, get audio file duration
     totaltimeinsecs = 0.00
     totaltimeinsecs = getaudioduration(inputwav)
     totaltimeinsecs = int(totaltimeinsecs) + 3 # Add 3 seconds for a graceful closedown
     # Cut the video file at this mark if totaltimeinsecs is not None
-    trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
-    if totaltimeinsecs is not None:
-        trimvideostream(inputmp4, trimmedvideofile, int(totaltimeinsecs))
-        os.rename(trimmedvideofile, inputmp4)
-    cmd = "ffmpeg -i %s -i %s -muxdelay 0 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict -2 -preset slow -pix_fmt yuv420p -copyts %s"%(inputmp4, inputwav, outputmp4)
+    #trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
+    #if totaltimeinsecs is not None:
+    #    trimvideostream(inputmp4, trimmedvideofile, int(totaltimeinsecs))
+    #    os.rename(trimmedvideofile, inputmp4)
+    tstart = int(tstart)
+    ss, mm, hh = tstart, 0, 0
+    if tstart >= 60:
+        mm = int(tstart/60)
+        ss = int(tstart % 60)
+    else:
+        pass
+    if str(ss).__len__() < 2:
+        ss = '0' + str(ss)
+    else:
+        ss = str(ss)
+    if str(mm).__len__() < 2:
+        mm = '0' + str(mm)
+    else:
+        mm = str(mm)
+    if str(hh).__len__() < 2:
+        hh = '0' + str(hh)
+    else:
+        hh = str(hh)
+    cmd = "ffmpeg -i %s -itsoffset %s:%s:%s -i %s -muxdelay 0 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict -2 -preset slow -pix_fmt yuv420p -copyts %s"%(inputmp4, hh, mm, ss, inputwav, outputmp4)
     subprocess.call(cmd, shell=True)
     return outputmp4
 
@@ -343,6 +364,7 @@ if __name__ == "__main__":
         os.makedirs(vidpath, 0o777)
     outpath = vidpath + os.path.sep + "outvideo.mp4"
     uniquedict = {}
+    timeslist = [0, ]
     for segment in segmentslist:
         videoslist = list_youtube_videos(segment['header'], 3) # Get 3 video links: sometimes one of the links could be non-mp4 file.
         if not os.path.exists(vidpath):
@@ -361,6 +383,8 @@ if __name__ == "__main__":
                 # Chop stream after ts seconds.. and send it to a new file.
                 choppedvideopath = videowithtextpath.split(".")[0] + "_trmd.mp4"
                 ts = computetimespanfromcontent(segmentcontent)
+                nextvideostarttime = timeslist[-1] + ts + 0.5 # Start of subtitles will be half a second after the video starts
+                timeslist.append(nextvideostarttime)
                 trimvideostream(videowithtextpath, choppedvideopath, ts)
                 fv = open(choppedvideopath, "rb")
                 vidcontent = fv.read()
@@ -377,6 +401,8 @@ if __name__ == "__main__":
                 # Chop stream after ts seconds.. and send it to a new file.
                 choppedvideopath = videowithtextpath.split(".")[0] + "_trmd.mp4"
                 ts = computetimespanfromcontent(segmentcontent)
+                nextvideostarttime = timeslist[-1] + ts + 0.5 # Start of subtitles will be half a second after the video starts
+                timeslist.append(nextvideostarttime)
                 trimvideostream(videowithtextpath, choppedvideopath, ts)
                 outpathparts = outpath.split(".")
                 newoutpath = outpathparts[0] + "_tmp.mp4"
@@ -416,6 +442,28 @@ if __name__ == "__main__":
                 uniquedict[vid['videoid']] = 1
                 break
     # Get the audio from google speech to text
+    segmentslist = readandsegmenttext(textfile)
+    tctr = 0
+    for segment in segmentslist:
+        segtext = segment['content']
+        inaudio = getaudiofromtext_google(segtext)
+        if not inaudio:
+            print("Failed! Could not retrieve audio from the source")
+            continue
+        outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
+        timeofstart = timeslist[tctr]
+        addvoiceoveraudio(outpath, inaudio, outvoiceoverpath, timeofstart)
+        os.unlink(inaudio)
+        os.unlink(outpath)
+        fpo = open(outpath, "wb")
+        fpv = open(outvoiceoverpath, "rb")
+        vocontent = fpv.read()
+        fpv.close()
+        fpo.write(vocontent)
+        fpo.close()
+        os.unlink(outvoiceoverpath)
+        tctr += 1
+    """
     fa = open(textfile, "r")
     textcontent = fa.read()
     fa.close()
@@ -433,6 +481,8 @@ if __name__ == "__main__":
         print("Success!")
     else:
         print("Failure!")
+    """
+    print("\n\nOutput file: %s"%outpath)
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
 # Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt"
