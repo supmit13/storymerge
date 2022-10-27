@@ -189,8 +189,6 @@ def addvoiceoveraudio(inputmp4, audiofiles, outputmp4, timeslist):
         delayctr += 1
         tctr += 1
     cmd = "ffmpeg -y -i %s %s -max_muxing_queue_size 9999 -filter_complex \"%s%samix=%s[a]\" -map 0:v -map \"[a]\" -preset ultrafast %s"%(inputmp4, infilestr, delaystr, mixstr, numfiles, outputmp4)
-    print(cmd)
-    #cmd = "ffmpeg -y -i %s -itsoffset %s:%s:%s -i %s -muxdelay 0 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict -2 -preset slow -pix_fmt yuv420p -copyts %s"%(inputmp4, hh, mm, ss, inputwav, outputmp4)
     try:
         subprocess.call(cmd, shell=True)
     except:
@@ -461,26 +459,6 @@ if __name__ == "__main__":
         os.rename(outvoiceoverpath, outpath)
     except:
         print("ErrorAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA: %s"%sys.exc_info()[1].__str__())        
-    
-    """
-    fa = open(textfile, "r")
-    textcontent = fa.read()
-    fa.close()
-    #inaudio = getaudiofromtext(textcontent)
-    inaudio = getaudiofromtext_google(textcontent)
-    if not inaudio:
-        print("Failed! Could not retrieve audio from the source")
-        sys.exit()
-    # Now, add voiceover track on outpath video
-    outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
-    addvoiceoveraudio(outpath, inaudio, outvoiceoverpath)
-    if os.path.exists(outvoiceoverpath) and os.path.getsize(outvoiceoverpath) > 0:
-        os.unlink(outpath)
-        os.unlink(inaudio)
-        print("Success!")
-    else:
-        print("Failure!")
-    """
     print("\n\nOutput file: %s"%outpath)
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
