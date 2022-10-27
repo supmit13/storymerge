@@ -8,6 +8,8 @@ import subprocess
 import numpy as np
 import urllib, requests
 from urllib.parse import urlencode
+from fractions import Fraction
+import math
 
 import googleapiclient.discovery
 from pytube import YouTube
@@ -43,7 +45,8 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     fo = open(tmpfile1, "wb")
     fo.write(file1content)
     fo.close()
-    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
+    #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
+    cmd = "ffmpeg -i %s -i %s -filter_complex \"[0]setdar=16/9[a];[1]setdar=16/9[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
     subprocess.call(cmd, shell=True)
     # If mp4outfile exists and it size is > 0, then remove tmpfile1. Else, rename mp4file_1 to mp4outfile and remove tmpfile1.
     if os.path.exists(mp4outfile) and os.path.getsize(mp4outfile) > 0:
@@ -171,37 +174,27 @@ def getaudioduration(audfile):
 
 
 
-def addvoiceoveraudio(inputmp4, inputwav, outputmp4, tstart=0):
-    # First, get audio file duration
-    totaltimeinsecs = 0.00
-    totaltimeinsecs = getaudioduration(inputwav)
-    totaltimeinsecs = int(totaltimeinsecs) + 3 # Add 3 seconds for a graceful closedown
-    # Cut the video file at this mark if totaltimeinsecs is not None
-    #trimmedvideofile = inputmp4.split(".")[0] + "_finaltrim.mp4"
-    #if totaltimeinsecs is not None:
-    #    trimvideostream(inputmp4, trimmedvideofile, int(totaltimeinsecs))
-    #    os.rename(trimmedvideofile, inputmp4)
-    tstart = int(tstart)
-    ss, mm, hh = tstart, 0, 0
-    if tstart >= 60:
-        mm = int(tstart/60)
-        ss = int(tstart % 60)
-    else:
-        pass
-    if str(ss).__len__() < 2:
-        ss = '0' + str(ss)
-    else:
-        ss = str(ss)
-    if str(mm).__len__() < 2:
-        mm = '0' + str(mm)
-    else:
-        mm = str(mm)
-    if str(hh).__len__() < 2:
-        hh = '0' + str(hh)
-    else:
-        hh = str(hh)
-    cmd = "ffmpeg -i %s -itsoffset %s:%s:%s -i %s -muxdelay 0 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict -2 -preset slow -pix_fmt yuv420p -copyts %s"%(inputmp4, hh, mm, ss, inputwav, outputmp4)
-    subprocess.call(cmd, shell=True)
+def addvoiceoveraudio(inputmp4, audiofiles, outputmp4, timeslist):
+    infilestr = ""
+    delaystr = ""
+    mixstr = ""
+    delayctr = 1
+    tctr = 0
+    numfiles = audiofiles.__len__()
+    for audiofile in audiofiles:
+        infilestr += "-i %s "%audiofile # Note the space after '%s'. It is required.
+        timeofstart = math.ceil(Fraction(timeslist[tctr])) * 1000
+        delaystr += "[%s]adelay=%s[s%s];"%(delayctr, timeofstart, delayctr)
+        mixstr += "[s%s]"%delayctr
+        delayctr += 1
+        tctr += 1
+    cmd = "ffmpeg -y -i %s %s -max_muxing_queue_size 9999 -filter_complex \"%s%samix=%s[a]\" -map 0:v -map \"[a]\" -preset ultrafast %s"%(inputmp4, infilestr, delaystr, mixstr, numfiles, outputmp4)
+    print(cmd)
+    #cmd = "ffmpeg -y -i %s -itsoffset %s:%s:%s -i %s -muxdelay 0 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict -2 -preset slow -pix_fmt yuv420p -copyts %s"%(inputmp4, hh, mm, ss, inputwav, outputmp4)
+    try:
+        subprocess.call(cmd, shell=True)
+    except:
+        print("Error in '%s' : %s"%(cmd, sys.exc_info()[1].__str__()))
     return outputmp4
 
 
@@ -234,6 +227,8 @@ def getaudiofromtext_google(textstr):
     audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
     response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
     outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
+    if os.path.exists(outaudiofile):
+        outaudiofile = str(int(outaudiofile.split(".")[0]) + 1) + ".wav"
     with open(outaudiofile, "wb") as out:
         out.write(response.audio_content)
     print('Audio content written to file "%s"'%outaudiofile)
@@ -243,8 +238,8 @@ def getaudiofromtext_google(textstr):
 def list_youtube_videos(searchkey, maxresults=10):
     api_service_name = "youtube"
     api_version = "v3"
-    DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
-    #DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
+    #DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
+    DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
     youtube = googleapiclient.discovery.build(api_service_name, api_version, developerKey = DEVELOPER_KEY)
     request = youtube.search().list(
         part="id,snippet",
@@ -350,7 +345,6 @@ def computetimespanfromcontent(content):
     return totaltime
 
 
-
 if __name__ == "__main__":
     textfile = os.getcwd() + os.path.sep + "test-input.txt"
     if sys.argv.__len__() > 1:
@@ -443,26 +437,31 @@ if __name__ == "__main__":
                 break
     # Get the audio from google speech to text
     segmentslist = readandsegmenttext(textfile)
-    tctr = 0
+    audiofiles = []
     for segment in segmentslist:
         segtext = segment['content']
-        inaudio = getaudiofromtext_google(segtext)
-        if not inaudio:
-            print("Failed! Could not retrieve audio from the source")
+        if segtext.__len__() < 2: # If content is less than 2 characters, we skip, since that would only be a '\r\n'
+            tctr += 1
             continue
-        outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
-        timeofstart = timeslist[tctr]
-        addvoiceoveraudio(outpath, inaudio, outvoiceoverpath, timeofstart)
-        os.unlink(inaudio)
+        inaudio = getaudiofromtext_google(segtext)
+        if not inaudio or os.path.getsize(inaudio) < 1000: # inaudio file size less than 1kb
+            print("Retrying to get audio again")
+            os.unlink(inaudio)
+            inaudio = getaudiofromtext_google(segtext) # Try once more...
+            if not inaudio or os.path.getsize(inaudio) < 1000:
+                print("Failed! Could not retrieve audio from the source")
+                continue
+        audiofiles.append(inaudio)
+    outvoiceoverpath = outpath.split(".")[0] + "_vo.mp4"
+    addvoiceoveraudio(outpath, audiofiles, outvoiceoverpath, timeslist)
+    for audiofile in audiofiles:
+        os.unlink(audiofile)
+    try:
         os.unlink(outpath)
-        fpo = open(outpath, "wb")
-        fpv = open(outvoiceoverpath, "rb")
-        vocontent = fpv.read()
-        fpv.close()
-        fpo.write(vocontent)
-        fpo.close()
-        os.unlink(outvoiceoverpath)
-        tctr += 1
+        os.rename(outvoiceoverpath, outpath)
+    except:
+        print("ErrorAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA: %s"%sys.exc_info()[1].__str__())        
+    
     """
     fa = open(textfile, "r")
     textcontent = fa.read()
