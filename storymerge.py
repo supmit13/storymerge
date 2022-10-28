@@ -186,6 +186,23 @@ def addvoiceoveraudio(inputmp4, audiofiles, outputmp4, timeslist):
         timeofstart = math.ceil(Fraction(timeslist[tctr])) * 1000
         delaystr += "[%s]adelay=%s[s%s];"%(delayctr, timeofstart, delayctr)
         mixstr += "[s%s]"%delayctr
+        dur = getaudioduration(audiofile) * 1000
+        availabletime = 0
+        try:
+            nexttimeofstart = math.ceil(Fraction(timeslist[tctr+1])) * 1000
+            availabletime = nexttimeofstart - timeofstart
+            if availabletime < dur:
+                outaudiofile = audiofile.split(".")[0] + "_cut.wav"
+                # Cut the audio file to make dur = availabletime
+                cutcmd = "ffmpeg -ss 00 -i %s -to %s -c copy %s"%(audiofile, availabletime, outaudiofile)
+                subprocess.call(cutcmd, shell=True)
+                if os.path.exists(outaudiofile):
+                    os.unlink(audiofile)
+                    os.rename(outaudiofile, audiofile)
+                else:
+                    print("Couldn't find resized audio file.")
+        except:
+            print("Error while trying to cut audio file: %s"%sys.exc_info()[1].__str__())
         delayctr += 1
         tctr += 1
     cmd = "ffmpeg -y -i %s %s -max_muxing_queue_size 9999 -filter_complex \"%s%samix=%s[a]\" -map 0:v -map \"[a]\" -preset ultrafast %s"%(inputmp4, infilestr, delaystr, mixstr, numfiles, outputmp4)
@@ -343,6 +360,8 @@ def computetimespanfromcontent(content):
     return totaltime
 
 
+
+
 if __name__ == "__main__":
     textfile = os.getcwd() + os.path.sep + "test-input.txt"
     if sys.argv.__len__() > 1:
@@ -439,7 +458,6 @@ if __name__ == "__main__":
     for segment in segmentslist:
         segtext = segment['content']
         if segtext.__len__() < 2: # If content is less than 2 characters, we skip, since that would only be a '\r\n'
-            tctr += 1
             continue
         inaudio = getaudiofromtext_google(segtext)
         if not inaudio or os.path.getsize(inaudio) < 1000: # inaudio file size less than 1kb
@@ -458,7 +476,7 @@ if __name__ == "__main__":
         os.unlink(outpath)
         os.rename(outvoiceoverpath, outpath)
     except:
-        print("ErrorAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA: %s"%sys.exc_info()[1].__str__())        
+        print("Error: %s"%sys.exc_info()[1].__str__())        
     print("\n\nOutput file: %s"%outpath)
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
