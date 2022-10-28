@@ -20,8 +20,8 @@ from apivideo.apis import VideosApi
 from apivideo.exceptions import ApiAuthException
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
-#DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
-DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
+DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
+#DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
 
 """
 Dependencies: ffmpeg, python3, GOOGLE_APPLICATION_CREDENTIALS, pytube, googleapiclient, api.video
@@ -367,21 +367,21 @@ def computetimespanfromcontent(content):
 
 
 def uploadvideo_youtube(videofile, vidtitle, viddesc="", tagslist=["heart", "health"], vidscope=True):
-    global DEVELOPER_KEY
     if not os.path.exists(videofile):
         print("Error: video file '%s' does not exist"%videofile)
         return False
-    #client = apivideo.AuthenticatedApiClient(DEVELOPER_KEY) # Uncomment for production use
-    youclient = apivideo.AuthenticatedApiClient(DEVELOPER_KEY, production=False)
+    API_KEY = "3pfEK7nViNTSxvqZCbwZ2SrYXyneV7KJQiBU8XSgxXt"
+    youclient = apivideo.AuthenticatedApiClient(API_KEY) # Uncomment for production use
+    #youclient = apivideo.AuthenticatedApiClient(API_KEY, production=False)
     youclient.connect()
     videosapi = VideosApi(youclient)
     video_payload = {"title": "%s"%vidtitle, "description": "%s"%viddesc, "public": vidscope, "tags": tagslist}
     vidcreateresponse = videosapi.create(video_payload)
-    print("Video Container: %s"%str(response))
-    if 'video_id' in vidcreateresponse.keys():
+    print("Video Container: %s"%str(vidcreateresponse))
+    try:
         videoid = vidcreateresponse["video_id"]
-    else:
-        print("Could not get video create response")
+    except:
+        print("Could not get video create response: %s"%sys.exc_info()[1].__str__())
         return False
     try:
         fv = open(videofile, "rb")
@@ -413,12 +413,15 @@ def getstorymetadata(storyfile):
         storytitle = storylines[linectr]
         storytitle = segheadpattern.sub("", storytitle)
         linectr += 1
-    storydesc = storylines[linectr]
+    try:
+        storydesc = storylines[linectr]
+    except:
+        storydesc = storylines[linectr-1]
     storytags = []
     lineparts = storytitle.split(" ")
     for word in lineparts:
-        # TODO: Figure out a better way of excluding non-noun words.
-        if word.lower() in ["is", "are", "the", "a", "an", "high", "low", "big", "small", "good", "bad", "best", "worst", "worse", "better", "if", "else", "of", "for", "from", "to", "till", "until", "find", "look", "lost", "found", "what", "when", "why", "where", "which", "do", "done", "did", "does", "yes", "no", "not", "may be", "none", "man", "woman", "male", "female", "boy", "girl", "men", "women", "be", "will", "would", "should", "shall", "will", "won't", "aren't", "isn't", "wouldn't", "shouldn't", "couldn't", "buy", "bought", "sell", "sold", "sale", "purchase", "before", "after", "up", "down", "middle", "centre", "between", "out", "outside", "include", "exclude", "inclusive", "exclusive", "except", "in", "out", "left", "right", "between", "this", "that", "these", "those", "they", "them", "thus", "so", "but", "how", "high", "low", "either", "or", "neither", "nor", "must", "may"]:
+        # TODO: Figure out a better way of excluding non-proper-noun words.
+        if word.lower() in ["is", "are", "the", "a", "an", "high", "low", "big", "small", "good", "bad", "best", "worst", "worse", "better", "if", "else", "of", "for", "from", "to", "till", "until", "find", "look", "lost", "found", "what", "when", "why", "where", "which", "do", "done", "did", "does", "yes", "no", "not", "may be", "none", "man", "woman", "male", "female", "boy", "girl", "men", "women", "be", "will", "would", "should", "shall", "will", "won't", "aren't", "isn't", "wouldn't", "shouldn't", "couldn't", "buy", "bought", "sell", "sold", "sale", "purchase", "before", "after", "up", "down", "middle", "centre", "between", "out", "outside", "include", "exclude", "inclusive", "exclusive", "except", "in", "out", "left", "right", "between", "this", "that", "these", "those", "they", "them", "thus", "so", "but", "how", "high", "low", "either", "or", "neither", "nor", "must", "may", "has", "had", "have", "hasn't", "haven't", "hadn't", "with", "without", "here", "there"]:
             continue # Just skip the above words
         storytags.append(word)
     return [storytitle, storydesc, storytags]
@@ -560,7 +563,7 @@ if __name__ == "__main__":
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
 # Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt"
 # OR
-# Run: python storymerge.py
+# Run: python storymerge.py <story text file path> "<Story title>"
 # Developer: Supriyo Mitra
 # Date: 03-08-2022
 """
