@@ -15,10 +15,16 @@ import googleapiclient.discovery
 from pytube import YouTube
 from google.cloud import texttospeech
 
+import apivideo
+from apivideo.apis import VideosApi
+from apivideo.exceptions import ApiAuthException
+
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
+#DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
+DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
 
 """
-Dependencies: ffmpeg, python3, GOOGLE_APPLICATION_CREDENTIALS, pytube, googleapiclient
+Dependencies: ffmpeg, python3, GOOGLE_APPLICATION_CREDENTIALS, pytube, googleapiclient, api.video
 Check requirements.txt for other python modules used.
 """
 
@@ -251,10 +257,10 @@ def getaudiofromtext_google(textstr):
 
 
 def list_youtube_videos(searchkey, maxresults=10):
+    global DEVELOPER_KEY
     api_service_name = "youtube"
     api_version = "v3"
-    #DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
-    DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
+    
     youtube = googleapiclient.discovery.build(api_service_name, api_version, developerKey = DEVELOPER_KEY)
     request = youtube.search().list(
         part="id,snippet",
@@ -360,15 +366,76 @@ def computetimespanfromcontent(content):
     return totaltime
 
 
+def uploadvideo_youtube(videofile, vidtitle, viddesc="", tagslist=["heart", "health"], vidscope=True):
+    global DEVELOPER_KEY
+    if not os.path.exists(videofile):
+        print("Error: video file '%s' does not exist"%videofile)
+        return False
+    #client = apivideo.AuthenticatedApiClient(DEVELOPER_KEY) # Uncomment for production use
+    youclient = apivideo.AuthenticatedApiClient(DEVELOPER_KEY, production=False)
+    youclient.connect()
+    videosapi = VideosApi(youclient)
+    video_payload = {"title": "%s"%vidtitle, "description": "%s"%viddesc, "public": vidscope, "tags": tagslist}
+    vidcreateresponse = videosapi.create(video_payload)
+    print("Video Container: %s"%str(response))
+    if 'video_id' in vidcreateresponse.keys():
+        videoid = vidcreateresponse["video_id"]
+    else:
+        print("Could not get video create response")
+        return False
+    try:
+        fv = open(videofile, "rb")
+        videouploadresponse = videos_api.upload(videoid, fv)
+        print("Uploaded Video: %s"%str(videouploadresponse))
+        fv.close() # Closing file.
+    except:
+        print("Error uploading video: %s"%sys.exc_info()[1].__str__())
+        return False
+    return True
+
+
+def getstorymetadata(storyfile):
+    if not os.path.exists(storyfile):
+        print("Could not find story at '%s'"%storyfile)
+        return []
+    fs = open(storyfile, "r")
+    storycontent = fs.read()
+    fs.close()
+    storylines = storyfile.split("\n")
+    storytitle = ""
+    segheadpattern = re.compile("^\d+\.?\s+")
+    if storylines.__len__() == 0:
+        return []
+    storytitle = storylines[0]
+    storytitle = segheadpattern.sub("", storytitle)
+    linectr = 1
+    while storytitle == "":
+        storytitle = storylines[linectr]
+        storytitle = segheadpattern.sub("", storytitle)
+        linectr += 1
+    storydesc = storylines[linectr]
+    storytags = []
+    lineparts = storytitle.split(" ")
+    for word in lineparts:
+        # TODO: Figure out a better way of excluding non-noun words.
+        if word.lower() in ["is", "are", "the", "a", "an", "high", "low", "big", "small", "good", "bad", "best", "worst", "worse", "better", "if", "else", "of", "for", "from", "to", "till", "until", "find", "look", "lost", "found", "what", "when", "why", "where", "which", "do", "done", "did", "does", "yes", "no", "not", "may be", "none", "man", "woman", "male", "female", "boy", "girl", "men", "women", "be", "will", "would", "should", "shall", "will", "won't", "aren't", "isn't", "wouldn't", "shouldn't", "couldn't", "buy", "bought", "sell", "sold", "sale", "purchase", "before", "after", "up", "down", "middle", "centre", "between", "out", "outside", "include", "exclude", "inclusive", "exclusive", "except", "in", "out", "left", "right", "between", "this", "that", "these", "those", "they", "them", "thus", "so", "but", "how", "high", "low", "either", "or", "neither", "nor", "must", "may"]:
+            continue # Just skip the above words
+        storytags.append(word)
+    return [storytitle, storydesc, storytags]
+
+
 
 
 if __name__ == "__main__":
     textfile = os.getcwd() + os.path.sep + "test-input.txt"
+    videotitle = ""
     if sys.argv.__len__() > 1:
         textfile = sys.argv[1]
     if not os.path.exists(textfile):
         print("Could not find input text block. Quitting.\n")
         sys.exit()
+    if sys.argv.__len__() > 2:
+        videotitle = sys.argv[2]
     segmentslist = readandsegmenttext(textfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     if not os.path.isdir(vidpath):
@@ -478,6 +545,17 @@ if __name__ == "__main__":
     except:
         print("Error: %s"%sys.exc_info()[1].__str__())        
     print("\n\nOutput file: %s"%outpath)
+    videodescription = ""
+    videotags = []
+    metadatalist = getstorymetadata(textfile)
+    if metadatalist.__len__() == 0:
+        print("Error getting metadata from story file. Can't upload video.")
+        sys.exit(1)
+    if videotitle == "":
+        videotitle = metadatalist[0]
+    videodescription = metadatalist[1]
+    videotags = metadatalist[2]
+    uploadvideo_youtube(outpath, videotitle, videodescription, videotags, True)
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
 # Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt"
