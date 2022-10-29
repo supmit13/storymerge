@@ -2,11 +2,13 @@ import os, sys, re, time
 import datetime
 import glob
 import shutil
+import random
 
 import simplejson as json
 import subprocess
 import numpy as np
 import urllib, requests
+import httplib2
 from urllib.parse import urlencode
 from fractions import Fraction
 import math
@@ -15,13 +17,23 @@ import googleapiclient.discovery
 from pytube import YouTube
 from google.cloud import texttospeech
 
+# Libraries for Youtube video upload
+from apiclient.discovery import build
+from apiclient.errors import HttpError
+from apiclient.http import MediaFileUpload
+from oauth2client.client import flow_from_clientsecrets
+from oauth2client.file import Storage
+from oauth2client.tools import argparser, run_flow
+from oauth2client import client
+
+
 import apivideo
 from apivideo.apis import VideosApi
 from apivideo.exceptions import ApiAuthException
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
-DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
-#DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
+#DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
+DEVELOPER_KEY = 'AIzaSyCjOk1a5NH26Qg-VYaFZW0RLJmDyVCnGQ8'
 
 """
 Dependencies: ffmpeg, python3, GOOGLE_APPLICATION_CREDENTIALS, pytube, googleapiclient, api.video
@@ -51,8 +63,8 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     fo = open(tmpfile1, "wb")
     fo.write(file1content)
     fo.close()
-    #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
-    cmd = "ffmpeg -i %s -i %s -filter_complex \"[0]setdar=16/9[a];[1]setdar=16/9[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
+    #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)setdar=16:ceil(ih/2)*2,
+    cmd = "ffmpeg -i %s -i %s -filter_complex \"[0]scale=ceil(iw/2)*2:ceil(ih/2)*2[a];[1]scale=ceil(iw/2)*2:ceil(ih/2)*2[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
     subprocess.call(cmd, shell=True)
     # If mp4outfile exists and it size is > 0, then remove tmpfile1. Else, rename mp4file_1 to mp4outfile and remove tmpfile1.
     if os.path.exists(mp4outfile) and os.path.getsize(mp4outfile) > 0:
@@ -366,7 +378,7 @@ def computetimespanfromcontent(content):
     return totaltime
 
 
-def uploadvideo_youtube(videofile, vidtitle, viddesc="", tagslist=["heart", "health"], vidscope=True):
+def uploadvideo_apivideo(videofile, vidtitle, viddesc="", tagslist=["heart", "health"], vidscope=True):
     if not os.path.exists(videofile):
         print("Error: video file '%s' does not exist"%videofile)
         return False
@@ -385,13 +397,112 @@ def uploadvideo_youtube(videofile, vidtitle, viddesc="", tagslist=["heart", "hea
         return False
     try:
         fv = open(videofile, "rb")
-        videouploadresponse = videos_api.upload(videoid, fv)
+        videouploadresponse = videosapi.upload(videoid, fv)
         print("Uploaded Video: %s"%str(videouploadresponse))
         fv.close() # Closing file.
     except:
         print("Error uploading video: %s"%sys.exc_info()[1].__str__())
         return False
     return True
+
+
+def __get_youtube_token():
+    tokenhere = None
+    if os.path.exists('youtube.data'):
+        with open('youtube.data') as creds:
+            tokenhere = creds.read()  # Change to reflect how the token data is reflected in your 'creds.data' file
+    return tokenhere
+
+
+def __put_youtube_token(token):
+    ft = open('youtube.data', "w")
+    ft.write(token)
+    ft.close()
+
+
+def uploadvideo_youtube(videofile, vidtitle, viddesc="", tagslist=["heart", "health"]):
+    YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+    CLIENT_SECRETS_FILE = "client_secrets.json"
+    YOUTUBE_API_SERVICE_NAME = "youtube"
+    YOUTUBE_API_VERSION = "v3"
+    VALID_PRIVACY_STATUSES = ("public", "private", "unlisted")
+    MISSING_CLIENT_SECRETS_MESSAGE = """
+WARNING: Please configure OAuth 2.0
+To make this code run you will need to populate the client_secrets.json file
+found at:
+
+   %s
+
+with information from the API Console
+https://console.developers.google.com/
+
+For more information about the client_secrets.json file format, please visit:
+https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
+    """%os.path.abspath(os.path.join(os.path.dirname(__file__), CLIENT_SECRETS_FILE))
+    flow = flow_from_clientsecrets(CLIENT_SECRETS_FILE, scope=YOUTUBE_UPLOAD_SCOPE, message=MISSING_CLIENT_SECRETS_MESSAGE)
+    storage = Storage("storymerge-oauth2.json")
+    credentials = storage.get()
+    flow.redirect_uri = client.OOB_CALLBACK_URN
+    authorize_url = flow.step1_get_authorize_url()
+    if credentials is None or credentials.invalid:
+        try:
+            accesstoken = __get_youtube_token()
+            if accesstoken is None:
+                flags = argparser.parse_args(args=[]) # This is so that run_flow doesn't look for command line arguments.
+                credentials = run_flow(flow, storage, flags)
+                accesstoken = credentials.access_token
+                __put_youtube_token(accesstoken)
+            else:
+                credentials = flow.step2_exchange(accesstoken, http=httplib2.Http())
+            print('Youtube API authentication successful.')
+        except:
+            print("Authentication failed for Youtube API: %s"%sys.exc_info()[1].__str__())
+            return None
+    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, http=credentials.authorize(httplib2.Http()))
+    try:
+        body=dict(snippet=dict(title=vidtitle, description=viddesc, tags=tagslist, categoryId=22), status=dict(privacyStatus=VALID_PRIVACY_STATUSES[0]))
+        insert_request = youtube.videos().insert(part=",".join(body.keys()), body=body, media_body=MediaFileUpload(videofile, chunksize=-1, resumable=True))
+    except HttpError as e:
+        print("An HTTP error %d occurred during video upload to youtube:\n%s" % (e.resp.status, e.content))
+        return None
+    __resumable_upload_youtube(insert_request)
+    return True
+
+
+# Utility function to handle resumable upload of video to youtube.
+def __resumable_upload_youtube(insert_request):
+    RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
+    # Always retry when these exceptions are raised.
+    #RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, IOError, httplib.NotConnected, httplib.IncompleteRead, httplib.ImproperConnectionState, httplib.CannotSendRequest, httplib.CannotSendHeader, httplib.ResponseNotReady, httplib.BadStatusLine)
+    httplib2.RETRIES = 1
+    MAX_RETRIES = 10
+    response = None
+    error = None
+    retry = 0
+    while response is None:
+        try:
+            print("Uploading file...")
+            status, response = insert_request.next_chunk()
+            if response is not None:
+                if 'id' in response:
+                    print("Video id '%s' was successfully uploaded." % response['id'])
+                else:
+                    exit("The upload failed with an unexpected response: %s" % response)
+        except Exception as e:
+            if e.resp.status in RETRIABLE_STATUS_CODES: 
+                error = "A retriable HTTP error %d occurred:\n%s" % (e.resp.status, e.content)
+            else:
+                error = "A retriable error occurred: %s" % e.content
+                raise Exception(error)
+        if error is not None:
+            print(error)
+            retry += 1
+            if retry > MAX_RETRIES:
+                exit("No longer attempting to retry.")
+            max_sleep = 2 ** retry
+            sleep_seconds = random.random() * max_sleep
+            print("Sleeping %f seconds and then retrying..." % sleep_seconds)
+            time.sleep(sleep_seconds)
 
 
 def getstorymetadata(storyfile):
@@ -558,7 +669,8 @@ if __name__ == "__main__":
         videotitle = metadatalist[0]
     videodescription = metadatalist[1]
     videotags = metadatalist[2]
-    uploadvideo_youtube(outpath, videotitle, videodescription, videotags, True)
+    uploadvideo_youtube(outpath, videotitle, videodescription, videotags)
+
 
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
 # Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt"
