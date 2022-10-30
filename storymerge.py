@@ -261,7 +261,14 @@ def getaudiofromtext_google(textstr):
     response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
     outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
     if os.path.exists(outaudiofile):
-        outaudiofile = str(int(outaudiofile.split(".")[0]) + 1) + ".wav"
+        datetimepattern = re.compile("^([\w\/\\_\-]+)[\\\/]{1}(\d{14})$")
+        dps = re.search(datetimepattern, outaudiofile.split(".")[0])
+        if dps:
+            basedir = dps.groups()[0]
+            filename = dps.groups()[1]
+            outaudiofile = basedir + os.path.sep + str(int(filename) + 1) + ".wav"
+        else:
+            outaudiofile = outaudiofile.split(".")[0] + "_2.wav"
     with open(outaudiofile, "wb") as out:
         out.write(response.audio_content)
     print('Audio content written to file "%s"'%outaudiofile)
