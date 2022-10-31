@@ -65,7 +65,9 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     fo.close()
     #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)setdar=16:ceil(ih/2)*2,
     cmd = "ffmpeg -i %s -i %s -filter_complex \"[0]scale=ceil(iw/2)*2:ceil(ih/2)*2[a];[1]scale=ceil(iw/2)*2:ceil(ih/2)*2[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
-    subprocess.call(cmd, shell=True)
+    errcode = subprocess.call(cmd, shell=True)
+    if errcode > 0: # Some error occurred during execution of the command
+        return None
     # If mp4outfile exists and it size is > 0, then remove tmpfile1. Else, rename mp4file_1 to mp4outfile and remove tmpfile1.
     if os.path.exists(mp4outfile) and os.path.getsize(mp4outfile) > 0:
         os.unlink(tmpfile1)
@@ -601,7 +603,6 @@ if __name__ == "__main__":
                 choppedvideopath = videowithtextpath.split(".")[0] + "_trmd.mp4"
                 ts = computetimespanfromcontent(segmentcontent)
                 nextvideostarttime = timeslist[-1] + ts + 0.5 # Start of subtitles will be half a second after the video starts
-                timeslist.append(nextvideostarttime)
                 trimvideostream(videowithtextpath, choppedvideopath, ts)
                 outpathparts = outpath.split(".")
                 newoutpath = outpathparts[0] + "_tmp.mp4"
@@ -611,6 +612,9 @@ if __name__ == "__main__":
                         newoutpath = va_concatmp4streams(outpath, choppedvideopath, newoutpath)
                     else:
                         newoutpath = va_concatmp4streams(outpath, videowithtextpath, newoutpath)
+                    if newoutpath is None: # Error occurred during execution of command
+                        continue
+                    timeslist.append(nextvideostarttime)
                     fv = open(newoutpath, "rb")
                     vidcontent = fv.read()
                     fv.close()
