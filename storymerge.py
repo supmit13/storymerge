@@ -81,6 +81,76 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     return mp4outfile
 
 
+"""
+Create a storyfile out of a free-form text file:
+Sentences that end with a question mark or colon are considered to
+be section headers. The remaining text till the next section header
+is the content for this section header.
+The first line of the file is the file header.
+The function creates a story file that adheres to the rules specified
+in the function 'readandsegmenttext'.
+"""
+def createstoryfile(textfile):
+    if not os.path.exists(textfile):
+        return None
+    ft = open(textfile, "r")
+    textcontent = ft.read()
+    ft.close()
+    headerpattern = re.compile("[\?\:]{1}\s*$")
+    emptypattern = re.compile("^\s*$")
+    alllines = textcontent.split("\n")
+    lctr = 0
+    sectionctr = 1
+    firstline = True
+    sectionlines = []
+    for line in alllines:
+        line = line.replace("\n", "").replace("\r", "")
+        if firstline and not re.search(emptypattern, line):
+            sectionlines.append(maketitlecase(line))
+            sectionlines.append("")
+            firstline = False
+        elif re.search(headerpattern, line):
+            line = str(sectionctr) + ". " + maketitlecase(line)
+            sectionlines.append("") # section header should have an empty line before it
+            sectionlines.append(maketitlecase(line))
+            sectionlines.append("") # section header should have an empty line after it as well.
+            sectionctr += 1
+        elif re.search(emptypattern, line):
+            continue # skip empty lines
+        else:
+            # If a line contains 5 or less words, then it is possibly a bulleted point. 
+            # Add a period after each such line so that they have a small silence before 
+            # and after them in the speech.
+            words = line.split(" ")
+            if words.__len__() <= 5:
+                line += "."
+            sectionlines.append(line)
+    textfilename = os.path.basename(textfile)
+    storyfile = textfilename.split(".")[0] + "_story.txt"
+    fs = open(storyfile, "w")
+    fs.write("\n".join(sectionlines))
+    fs.close()
+    return storyfile
+
+
+"""
+Function to make a line of text to title case with 
+the exception of words that are entirely in uppercase.
+"""
+def maketitlecase(line):
+    wordslist = line.split(" ")
+    allupperpattern = re.compile("^[A-Z\d\:\?\/\-\,;_]+$")
+    newwords = []
+    for word in wordslist:
+        if re.search(allupperpattern, word):
+            newwords.append(word)
+        else:
+            newword = word.title()
+            newwords.append(newword)
+    newline = " ".join(newwords)
+    return newline
+
+
 def addtextonmp4stream(mp4file, textstring, outputmp4):
     textparts = textstring.split(".") # Check if it is multi-sentence text... we create a .srt file  for using it as subtitle text.
     subtitlesfile = "./subtitles.srt"
@@ -559,7 +629,16 @@ if __name__ == "__main__":
         sys.exit()
     if sys.argv.__len__() > 2:
         videotitle = sys.argv[2]
-    segmentslist = readandsegmenttext(textfile)
+    # Get textfile and convert it into story format
+    try:
+        storyfile = createstoryfile(textfile)
+    except:
+        print("Could not generate story file. Error: %s"%sys.exc_info()[1].__str__())
+        storyfile = None
+    if storyfile is None or not os.path.exists(storyfile):
+        print("No story file created. Exiting...")
+        sys.exit()
+    segmentslist = readandsegmenttext(storyfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     if not os.path.isdir(vidpath):
         os.makedirs(vidpath, 0o777)
@@ -645,7 +724,7 @@ if __name__ == "__main__":
                 uniquedict[vid['videoid']] = 1
                 break
     # Get the audio from google speech to text
-    segmentslist = readandsegmenttext(textfile)
+    segmentslist = readandsegmenttext(storyfile)
     audiofiles = []
     for segment in segmentslist:
         segtext = segment['content']
@@ -672,7 +751,7 @@ if __name__ == "__main__":
     print("\n\nOutput file: %s"%outpath)
     videodescription = ""
     videotags = []
-    metadatalist = getstorymetadata(textfile)
+    metadatalist = getstorymetadata(storyfile)
     if metadatalist.__len__() == 0:
         print("Error getting metadata from story file. Can't upload video.")
         sys.exit(1)
