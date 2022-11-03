@@ -98,6 +98,8 @@ def createstoryfile(textfile):
     ft.close()
     headerpattern = re.compile("[\?\:]{1}\s*$")
     emptypattern = re.compile("^\s*$")
+    parenthesispattern = re.compile("^([^\(]+)(\([^\)]+\))(.*)$", re.DOTALL)
+    startperiodpattern = re.compile("^\s*\.")
     alllines = textcontent.split("\n")
     lctr = 0
     sectionctr = 1
@@ -105,12 +107,25 @@ def createstoryfile(textfile):
     sectionlines = []
     for line in alllines:
         line = line.replace("\n", "").replace("\r", "")
+        # If there is a parenthesized text in any line, put a comma before it and a comma or period after it.
         if firstline and not re.search(emptypattern, line):
+            pps = re.search(parenthesispattern, line)
+            if pps:
+                if re.search(startperiodpattern, pps.groups()[2]):
+                    line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
+                else:
+                    line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
             sectionlines.append(maketitlecase(line))
             sectionlines.append("")
             firstline = False
         elif re.search(headerpattern, line):
             line = str(sectionctr) + ". " + maketitlecase(line)
+            pps = re.search(parenthesispattern, line)
+            if pps:
+                if re.search(startperiodpattern, pps.groups()[2]):
+                    line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
+                else:
+                    line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
             sectionlines.append("") # section header should have an empty line before it
             sectionlines.append(maketitlecase(line))
             sectionlines.append("") # section header should have an empty line after it as well.
@@ -121,6 +136,12 @@ def createstoryfile(textfile):
             # If a line contains 5 or less words, then it is possibly a bulleted point. 
             # Add a period after each such line so that they have a small silence before 
             # and after them in the speech.
+            pps = re.search(parenthesispattern, line)
+            if pps:
+                if re.search(startperiodpattern, pps.groups()[2]):
+                    line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
+                else:
+                    line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
             words = line.split(" ")
             if words.__len__() <= 5:
                 line += "."
