@@ -26,10 +26,14 @@ from oauth2client.file import Storage
 from oauth2client.tools import argparser, run_flow
 from oauth2client import client
 
-
 import apivideo
 from apivideo.apis import VideosApi
 from apivideo.exceptions import ApiAuthException
+
+import spacy
+from collections import Counter
+from string import punctuation
+
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getcwd() + os.path.sep + "storymerge-775cc31bde1f.json"
 #DEVELOPER_KEY = 'AIzaSyDK0xlWEzAf3IkE7WuKJYZnL-UWnDfHALw'
@@ -85,7 +89,7 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
 Create a storyfile out of a free-form text file:
 Sentences that end with a question mark or colon are considered to
 be section headers. The remaining text till the next section header
-is the content for this section header.
+is the content of this section.
 The first line of the file is the file header.
 The function creates a story file that adheres to the rules specified
 in the function 'readandsegmenttext'.
@@ -105,6 +109,7 @@ def createstoryfile(textfile):
     sectionctr = 1
     firstline = True
     sectionlines = []
+    headers = []
     for line in alllines:
         line = line.replace("\n", "").replace("\r", "")
         # If there is a parenthesized text in any line, put a comma before it and a comma or period after it.
@@ -129,6 +134,7 @@ def createstoryfile(textfile):
             sectionlines.append("") # section header should have an empty line before it
             sectionlines.append(maketitlecase(line))
             sectionlines.append("") # section header should have an empty line after it as well.
+            headers.append(line)
             sectionctr += 1
         elif re.search(emptypattern, line):
             continue # skip empty lines
@@ -146,12 +152,66 @@ def createstoryfile(textfile):
             if words.__len__() <= 5:
                 line += "."
             sectionlines.append(line)
+    # At this point we should be having at least 2 header lines. 
+    # If that is not the case, then we should do a second pass on
+    # the content to identify a few more headers. The minimum 
+    # number of headers is 2 because if it were 1 then we wouldn't
+    # be able to create a new video by concatenating 2 videos, and
+    # that could lead to charges of plagiarism.
+    if headers.__len__() < 2:
+        """
+        Define more rules to identify headers. 
+        These rules need to be a bit more inclusive
+        than the rules in the previous pass.
+        Rule #1: A line containing a full sentence 
+        from start to period may be considered as a header.
+        Rule #2: Top 3 lines with the highest number
+        of keywords would be considered as headers.
+        Note: We use a spaCy model to identify keywords.
+        """
+        keywords = set(get_hotwords(textcontent))
+        top10list = Counter(keywords).most_common(10)
+        top10kw = []
+        for item in top10list:
+            top10kw.append(item[0])
+        # Iterate over each line and identify 3 lines with the max number of keywords.
+        kwcounts = [] # Keep in mind that the empty lines would be considered too.
+        linectr = 1
+        for line in alllines[1:]: # First line is the file header. So skipping it.
+            kwcnt = 0
+            linelower = line.lower()
+            # Find how many times each keyword appears in the line.
+            for kw in top10kw:
+                kwpattern = re.compile("\s+%s[\s,\.;]{1}"%kw, re.IGNORECASE)
+                ll = re.findall(kwpattern, linelower)
+                kwcnt += ll.__len__()
+            kwcounts[linectr] = kwcnt
+            linectr += 1
+        # So now kwcounts is a list of keyword counts indexed by line numbers (starting from line #1)
+        # We will sort them on descending order of values and take the top 3 elements. These 3 lines
+        # would be our header lines.
     textfilename = os.path.basename(textfile)
     storyfile = textfilename.split(".")[0] + "_story.txt"
     fs = open(storyfile, "w")
     fs.write("\n".join(sectionlines))
     fs.close()
     return storyfile
+
+
+def get_hotwords(text):
+    """
+    Function to identify keywords in the text content.
+    """
+    nlp = spacy.load("en_core_web_sm") # Load spacy model
+    result = []
+    pos_tag = ['PROPN', 'ADJ', 'NOUN'] 
+    doc = nlp(text.lower()) 
+    for token in doc:
+        if(token.text in nlp.Defaults.stop_words or token.text in punctuation):
+            continue
+        if(token.pos_ in pos_tag):
+            result.append(token.text)
+    return result
 
 
 """
@@ -659,6 +719,7 @@ if __name__ == "__main__":
     if storyfile is None or not os.path.exists(storyfile):
         print("No story file created. Exiting...")
         sys.exit()
+    sys.exit()
     segmentslist = readandsegmenttext(storyfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     if not os.path.isdir(vidpath):
@@ -798,6 +859,7 @@ https://askubuntu.com/questions/1128754/how-do-i-add-a-1-second-fade-out-effect-
 https://video.stackexchange.com/questions/16516/ffmpeg-first-second-of-cut-video-part-freezed
 https://superuser.com/questions/277642/how-to-merge-audio-and-video-file-in-ffmpeg
 https://cloud.google.com/speech-to-text/docs/encoding
+https://www.analyticsvidhya.com/blog/2022/03/keyword-extraction-methods-from-documents-in-nlp/
 
 """
 
