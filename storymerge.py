@@ -169,13 +169,15 @@ def createstoryfile(textfile):
         of keywords would be considered as headers.
         Note: We use a spaCy model to identify keywords.
         """
+        def getcount(e):
+            return e['count']
         keywords = set(get_hotwords(textcontent))
         top10list = Counter(keywords).most_common(10)
         top10kw = []
         for item in top10list:
             top10kw.append(item[0])
         # Iterate over each line and identify 3 lines with the max number of keywords.
-        kwcounts = [] # Keep in mind that the empty lines would be considered too.
+        kwcounts = {} # Keep in mind that the empty lines would be considered too.
         linectr = 1
         for line in alllines[1:]: # First line is the file header. So skipping it.
             kwcnt = 0
@@ -185,11 +187,48 @@ def createstoryfile(textfile):
                 kwpattern = re.compile("\s+%s[\s,\.;]{1}"%kw, re.IGNORECASE)
                 ll = re.findall(kwpattern, linelower)
                 kwcnt += ll.__len__()
-            kwcounts[linectr] = kwcnt
+            strlinectr = linectr.__str__()
+            if strlinectr.__len__() == 1:
+                strlinectr = "00" + strlinectr
+            if strlinectr.__len__() == 2:
+                strlinectr = "0" + strlinectr
+            kwcounts["%s"%strlinectr] = {'count' : kwcnt, 'index' : linectr}
             linectr += 1
         # So now kwcounts is a list of keyword counts indexed by line numbers (starting from line #1)
         # We will sort them on descending order of values and take the top 3 elements. These 3 lines
         # would be our header lines.
+        kwlist = [ kwcounts, ]
+        sortedkwlist = kwlist.sort(reverse=True, key=getcount)
+        top3headerindices = ( sortedkwlist[0]['index'], sortedkwlist[1]['index'], sortedkwlist[2]['index'] )
+        linectr = 0
+        pointnumbers = 1
+        sectionlines = []
+        for line in alllines: # Iterate over all lines again and format the text as per the header lines identified.
+            line = line.replace("\n", "").replace("\r", "")
+            if re.search(emptypattern, line):
+                linectr += 1
+                continue
+            if linectr in top3headerindices:
+                pps = re.search(parenthesispattern, line)
+                if pps:
+                    if re.search(startperiodpattern, pps.groups()[2]):
+                        line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
+                    else:
+                        line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
+                line = str(pointnumbers) + ". " + maketitlecase(line)
+                sectionlines.append("") # section header should have an empty line before it
+                sectionlines.append(line)
+                sectionlines.append("")
+                pointnumbers += 1
+            else:
+                pps = re.search(parenthesispattern, line)
+                if pps:
+                    if re.search(startperiodpattern, pps.groups()[2]):
+                        line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
+                    else:
+                        line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
+                sectionlines.append(line)
+            linectr += 1
     textfilename = os.path.basename(textfile)
     storyfile = textfilename.split(".")[0] + "_story.txt"
     fs = open(storyfile, "w")
