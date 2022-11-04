@@ -68,7 +68,7 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     fo.write(file1content)
     fo.close()
     #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)setdar=16:ceil(ih/2)*2,
-    cmd = "ffmpeg -i %s -i %s -filter_complex \"[0]scale=ceil(iw/2)*2:ceil(ih/2)*2[a];[1]scale=ceil(iw/2)*2:ceil(ih/2)*2[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
+    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0]scale=ceil(iw/2)*2:ceil(ih/2)*2[a];[1]scale=ceil(iw/2)*2:ceil(ih/2)*2[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
     errcode = subprocess.call(cmd, shell=True)
     if errcode > 0: # Some error occurred during execution of the command
         return None
@@ -170,36 +170,34 @@ def createstoryfile(textfile):
         Note: We use a spaCy model to identify keywords.
         """
         def getcount(e):
-            return e['count']
+            try:
+                return e['count']
+            except:
+                return 0
         keywords = set(get_hotwords(textcontent))
         top10list = Counter(keywords).most_common(10)
         top10kw = []
         for item in top10list:
             top10kw.append(item[0])
         # Iterate over each line and identify 3 lines with the max number of keywords.
-        kwcounts = {} # Keep in mind that the empty lines would be considered too.
+        kwcounts = [] # Keep in mind that the empty lines would be considered too.
+        alllines = textcontent.split("\n")
         linectr = 1
         for line in alllines[1:]: # First line is the file header. So skipping it.
             kwcnt = 0
             linelower = line.lower()
             # Find how many times each keyword appears in the line.
             for kw in top10kw:
-                kwpattern = re.compile("\s+%s[\s,\.;]{1}"%kw, re.IGNORECASE)
+                kwpattern = re.compile("\s+%s[\s,\.;]{0,1}"%kw, re.IGNORECASE)
                 ll = re.findall(kwpattern, linelower)
                 kwcnt += ll.__len__()
-            strlinectr = linectr.__str__()
-            if strlinectr.__len__() == 1:
-                strlinectr = "00" + strlinectr
-            if strlinectr.__len__() == 2:
-                strlinectr = "0" + strlinectr
-            kwcounts["%s"%strlinectr] = {'count' : kwcnt, 'index' : linectr}
+            kwcounts.append({'count' : kwcnt, 'index' : linectr})
             linectr += 1
         # So now kwcounts is a list of keyword counts indexed by line numbers (starting from line #1)
         # We will sort them on descending order of values and take the top 3 elements. These 3 lines
         # would be our header lines.
-        kwlist = [ kwcounts, ]
-        sortedkwlist = kwlist.sort(reverse=True, key=getcount)
-        top3headerindices = ( sortedkwlist[0]['index'], sortedkwlist[1]['index'], sortedkwlist[2]['index'] )
+        kwcounts.sort(reverse=True, key=getcount)
+        top3headerindices = ( kwcounts[0]['index'], kwcounts[1]['index'], kwcounts[2]['index'] )
         linectr = 0
         pointnumbers = 1
         sectionlines = []
@@ -326,7 +324,7 @@ This function cuts the input mp4 file at 'timespan' seconds from the start. outm
 def trimvideostream(inputmp4, outmp4, timespan=60):
     # First thing, we move the moov atom to the begining of the file.
     moovfile = inputmp4.split(".")[0] + "_moov.mp4"
-    cmd = "ffmpeg -i %s -c:v copy -c:a copy -movflags faststart %s"%(inputmp4, moovfile)
+    cmd = "ffmpeg -y -i %s -c:v copy -c:a copy -movflags faststart %s"%(inputmp4, moovfile)
     subprocess.call(cmd, shell=True)
     tmin, tsec = "00", "00"
     if int(timespan) > 60:
@@ -340,7 +338,7 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
     if str(tsec).__len__() < 2:
         tsec = "0" + str(tsec)
     # Make a cut at 00:tmin:tsec (Should we care about hour?)
-    cmd = "ffmpeg -ss 00:00:00 -i %s -c:v copy -c:a copy -to 00:%s:%s -avoid_negative_ts make_zero -strict -2 -preset slow -pix_fmt yuv420p %s"%(moovfile, tmin, tsec, outmp4)
+    cmd = "ffmpeg -y -ss 00:00:00 -i %s -c:v copy -c:a copy -to 00:%s:%s -avoid_negative_ts make_zero -strict -2 -preset slow -pix_fmt yuv420p %s"%(moovfile, tmin, tsec, outmp4)
     subprocess.call(cmd, shell=True)
     # Now get the duration of the video
     cmd = "ffprobe -loglevel error -show_entries format=duration -of default=nk=1:nw=1 \"%s\""%outmp4
@@ -352,7 +350,7 @@ def trimvideostream(inputmp4, outmp4, timespan=60):
         # Now apply a fade out of 2 second at the end of the video. Both video and audio will fade out.
         fadeoutfile = outmp4.split(".")[0] + "_fadeout.mp4"
         fadestarttime = duration - 2
-        cmd = "ffmpeg -i %s -filter_complex \"[0:v]fade=type=out:duration=2:start_time=%s[v];[0:a]afade=type=out:duration=2:start_time=%s[a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(outmp4, str(fadestarttime), str(fadestarttime), fadeoutfile)
+        cmd = "ffmpeg -y -i %s -filter_complex \"[0:v]fade=type=out:duration=2:start_time=%s[v];[0:a]afade=type=out:duration=2:start_time=%s[a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(outmp4, str(fadestarttime), str(fadestarttime), fadeoutfile)
         subprocess.call(cmd, shell=True)
         # Rename the fadeout file to outmp4 file name.
         os.rename(fadeoutfile, outmp4)
@@ -393,7 +391,10 @@ def addvoiceoveraudio(inputmp4, audiofiles, outputmp4, timeslist):
     numfiles = audiofiles.__len__()
     for audiofile in audiofiles:
         infilestr += "-i %s "%audiofile # Note the space after '%s'. It is required.
-        timeofstart = math.ceil(Fraction(timeslist[tctr])) * 1000
+        try:
+            timeofstart = math.ceil(Fraction(timeslist[tctr])) * 1000
+        except:
+            continue
         delaystr += "[%s]adelay=%s[s%s];"%(delayctr, timeofstart, delayctr)
         mixstr += "[s%s]"%delayctr
         dur = getaudioduration(audiofile) * 1000
@@ -404,7 +405,7 @@ def addvoiceoveraudio(inputmp4, audiofiles, outputmp4, timeslist):
             if availabletime < dur:
                 outaudiofile = audiofile.split(".")[0] + "_cut.wav"
                 # Cut the audio file to make dur = availabletime
-                cutcmd = "ffmpeg -ss 00 -i %s -to %s -c copy %s"%(audiofile, availabletime, outaudiofile)
+                cutcmd = "ffmpeg -y -ss 00 -i %s -to %s -c copy %s"%(audiofile, availabletime, outaudiofile)
                 subprocess.call(cutcmd, shell=True)
                 if os.path.exists(outaudiofile):
                     os.unlink(audiofile)
@@ -758,7 +759,6 @@ if __name__ == "__main__":
     if storyfile is None or not os.path.exists(storyfile):
         print("No story file created. Exiting...")
         sys.exit()
-    sys.exit()
     segmentslist = readandsegmenttext(storyfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
     if not os.path.isdir(vidpath):
