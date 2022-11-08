@@ -165,7 +165,7 @@ def createstoryfile(textfile):
         than the rules in the previous pass.
         Rule #1: A line containing a full sentence 
         from start to period may be considered as a header.
-        Rule #2: Top 3 lines with the highest number
+        Rule #2: Top 5 lines with the highest number
         of keywords would be considered as headers.
         Note: We use a spaCy model to identify keywords.
         """
@@ -179,11 +179,25 @@ def createstoryfile(textfile):
         top10kw = []
         for item in top10list:
             top10kw.append(item[0])
-        # Iterate over each line and identify 3 lines with the max number of keywords.
+        # Iterate over each line and identify 5 lines with the max number of keywords.
         kwcounts = [] # Keep in mind that the empty lines would be considered too.
         alllines = textcontent.split("\n")
+        repairedlines = []
+        # Join all lines ending with comma (,) or hyphen (-) characters. Basically repair lines that are broken.
+        endcommahyphenpattern = re.compile("[,\-]\s*$")
+        linectr = 0
+        for _ in range(0, alllines.__len__()):
+            if alllines.__len__() <= linectr:
+                break
+            line = alllines[linectr]
+            if re.search(endcommahyphenpattern, line) and alllines.__len__() > linectr:
+                line = line + alllines[linectr+1]
+                linectr += 2
+            else:
+                linectr += 1
+            repairedlines.append(line)
         linectr = 1
-        for line in alllines[1:]: # First line is the file header. So skipping it.
+        for line in repairedlines:
             kwcnt = 0
             linelower = line.lower()
             # Find how many times each keyword appears in the line.
@@ -194,19 +208,35 @@ def createstoryfile(textfile):
             kwcounts.append({'count' : kwcnt, 'index' : linectr})
             linectr += 1
         # So now kwcounts is a list of keyword counts indexed by line numbers (starting from line #1)
-        # We will sort them on descending order of values and take the top 3 elements. These 3 lines
-        # would be our header lines.
+        # We will sort them on descending order of values and take the top 4 elements. These 4 lines
+        # would be our header lines. Note: A segment/section should have both 'header' and 'content'.
+        # Section header lines should be repeated in content if sections do not have any content after parsing.
+        # Also, line number 2 (index 1) has to be used as header.
         kwcounts.sort(reverse=True, key=getcount)
-        top3headerindices = ( kwcounts[0]['index'], kwcounts[1]['index'], kwcounts[2]['index'] )
+        top5headerindices = ( kwcounts[0]['index'], kwcounts[1]['index'], kwcounts[2]['index'], kwcounts[3]['index'] )
         linectr = 0
         pointnumbers = 1
         sectionlines = []
+        firstline = False
         for line in alllines: # Iterate over all lines again and format the text as per the header lines identified.
             line = line.replace("\n", "").replace("\r", "")
             if re.search(emptypattern, line):
                 linectr += 1
                 continue
-            if linectr in top3headerindices:
+            if linectr == 1 or linectr == 2 and not firstline:
+                firstline = True
+                pps = re.search(parenthesispattern, line)
+                if pps:
+                    if re.search(startperiodpattern, pps.groups()[2]):
+                        line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
+                    else:
+                        line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
+                line = str(pointnumbers) + ". " + maketitlecase(line)
+                sectionlines.append("") # section header should have an empty line before it
+                sectionlines.append(line)
+                sectionlines.append("")
+                pointnumbers += 1
+            elif linectr in top5headerindices:
                 pps = re.search(parenthesispattern, line)
                 if pps:
                     if re.search(startperiodpattern, pps.groups()[2]):
@@ -446,10 +476,11 @@ def getaudiofromtext(textstr):
 
 def getaudiofromtext_google(textstr):
     #wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
+    #wavenet_api_key = "ffcdb1dc5dff7b6ee0a6559b533c04ab6716b874"
     client = texttospeech.TextToSpeechClient()
     synthesis_input = texttospeech.SynthesisInput(text=textstr)
     # British male voice options: en-GB-Wavenet-B, en-GB-Wavenet-D, en-GB-Standard-B, en-GB-Standard-D . Code for all of them is en-GB.
-    voice = texttospeech.VoiceSelectionParams(language_code="en-GB", name="en-GB-Standard-B", ssml_gender=texttospeech.SsmlVoiceGender.MALE)
+    voice = texttospeech.VoiceSelectionParams(language_code="en-GB", name="en-GB-Wavenet-B", ssml_gender=texttospeech.SsmlVoiceGender.MALE)
     audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
     response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
     outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
@@ -464,6 +495,28 @@ def getaudiofromtext_google(textstr):
             outaudiofile = outaudiofile.split(".")[0] + "_2.wav"
     with open(outaudiofile, "wb") as out:
         out.write(response.audio_content)
+    print('Audio content written to file "%s"'%outaudiofile)
+    return outaudiofile
+
+
+def getaudiofromtext_google_2(textstr):
+    url = "https://texttospeech.googleapis.com/v1beta1/text:synthesize"
+    data = { "input": {"text": textstr}, "voice": {"name":  "en-GB-Wavenet-B", "languageCode": "en-GB"}, "audioConfig": {"audioEncoding": "LINEAR16"} };
+    headers = {"content-type": "application/json", "X-Goog-Api-Key": "ffcdb1dc5dff7b6ee0a6559b533c04ab6716b874", "Authorization" : "Bearer ffcdb1dc5dff7b6ee0a6559b533c04ab6716b874" }
+    r = requests.post(url=url, json=data, headers=headers)
+    content = r.content
+    outaudiofile = time.strftime(os.getcwd() + os.path.sep + "videos" + os.path.sep + "%Y%m%d%H%M%S",time.localtime()) + ".wav"
+    if os.path.exists(outaudiofile):
+        datetimepattern = re.compile("^([\w\/\\_\-]+)[\\\/]{1}(\d{14})$")
+        dps = re.search(datetimepattern, outaudiofile.split(".")[0])
+        if dps:
+            basedir = dps.groups()[0]
+            filename = dps.groups()[1]
+            outaudiofile = basedir + os.path.sep + str(int(filename) + 1) + ".wav"
+        else:
+            outaudiofile = outaudiofile.split(".")[0] + "_2.wav"
+    with open(outaudiofile, "wb") as out:
+        out.write(content)
     print('Audio content written to file "%s"'%outaudiofile)
     return outaudiofile
 
@@ -546,7 +599,8 @@ def readandsegmenttext(filename):
                 segmentslist.append(segment)
             segmenthead = line
             segmenthead = linestartwithnumberpattern.sub("", line)
-            segment = {'header' : segmenthead, 'content' : ''}
+            #segment = {'header' : segmenthead, 'content' : ''}
+            segment = {'header' : segmenthead, 'content' : segmenthead}
         else:
             segmentcontent = line
             if segment is not None:
@@ -849,7 +903,7 @@ if __name__ == "__main__":
     audiofiles = []
     for segment in segmentslist:
         segtext = segment['content']
-        if segtext.__len__() < 2: # If content is less than 2 characters, we skip, since that would only be a '\r\n'
+        if segtext.__len__() <= 2: # If content is less than 2 characters, use the header as the content
             continue
         inaudio = getaudiofromtext_google(segtext)
         if not inaudio or os.path.getsize(inaudio) < 1000: # inaudio file size less than 1kb
@@ -899,7 +953,7 @@ https://video.stackexchange.com/questions/16516/ffmpeg-first-second-of-cut-video
 https://superuser.com/questions/277642/how-to-merge-audio-and-video-file-in-ffmpeg
 https://cloud.google.com/speech-to-text/docs/encoding
 https://www.analyticsvidhya.com/blog/2022/03/keyword-extraction-methods-from-documents-in-nlp/
-
+https://stackoverflow.com/questions/54699541/how-to-use-googles-text-to-speech-api-in-python
 """
 
 
