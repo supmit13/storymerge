@@ -109,7 +109,7 @@ def createstoryfile(textfile):
     emptypattern = re.compile("^\s*$")
     parenthesispattern = re.compile("^([^\(]+)(\([^\)]+\))(.*)$", re.DOTALL)
     startperiodpattern = re.compile("^\s*\.")
-    startnumberpattern = re.compile("^(\d+)[\.\s]")
+    startnumberpattern = re.compile("^(\d+)[\.\s]{1}")
     endperiodpattern = re.compile("\.$")
     alllines = textcontent.split("\n")
     lctr = 0
@@ -127,7 +127,9 @@ def createstoryfile(textfile):
     to the story. If we later find that there is no such structure, we will simply re-initialize those vars.
     """
     for line in alllines:
+        line = line.replace("\r", "")
         if re.search(emptypattern, line): # lctr shouldn't be incremented for this case
+            lctr += 1
             continue
         if lctr == 1 and skipsecondline is True:
             lctr += 1
@@ -144,7 +146,7 @@ def createstoryfile(textfile):
             lctr += 1
             continue
         lps = re.search(startnumberpattern, line)
-        if lps and startflag:
+        if lps and startflag is True:
             num = lps.groups()[0]
             if num == "1":
                 lastnum = int(num)
@@ -178,6 +180,7 @@ def createstoryfile(textfile):
     else:
         sectionlines = []
         firstline = True
+        lctr = 0
     for line in alllines:
         line = line.replace("\n", "").replace("\r", "")
         # If there is a parenthesized text in any line, put a comma before it and a comma or period after it.
