@@ -374,8 +374,10 @@ def addtextonmp4stream(mp4file, textstring, outputmp4, longsentences=False):
     ts = 0
     tf = 0
     ctr = 1
-    dt = 5
-    ldt = 7 # dt for longsentences=True
+    dt = 7
+    dt15 = 12
+    ldt = 9 # dt for longsentences=True
+    ldt15 = 16 # dt15 for longsentences=True
     emptyspacespattern = re.compile("^\s*$")
     for t in textparts:
         if re.search(emptyspacespattern, t):
@@ -388,9 +390,13 @@ def addtextonmp4stream(mp4file, textstring, outputmp4, longsentences=False):
         if longsentences is True:
             tf = ts + 4
         if words.__len__() > 8: # If number of words in the line is greater than 8...
-            tf = ts+dt # .. the time for which it would be shown is 8 seconds.
+            tf = ts+dt # .. the time for which it would be shown is 7 seconds.
             if longsentences is True:
                 tf = ts + ldt
+        if words.__len__() > 15: # If number of words in the line is greater than 15...
+            tf = ts+dt15 # .. the time for which it would be shown is 12 seconds.
+            if longsentences is True:
+                tf = ts + ldt15
         else:
             pass # .. else, it would be visible for 3 seconds only (4 secs if longsentences is True).
         tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='&Haa0000&'>%s</font>\n\n"%(ctr, ts, tf, t)
