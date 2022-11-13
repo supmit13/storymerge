@@ -308,6 +308,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4, longsentences=False):
     tf = 0
     ctr = 1
     dt = 5
+    ldt = 7 # dt for longsentences=True
     emptyspacespattern = re.compile("^\s*$")
     for t in textparts:
         if re.search(emptyspacespattern, t):
@@ -317,10 +318,14 @@ def addtextonmp4stream(mp4file, textstring, outputmp4, longsentences=False):
             t = " ".join(t_t)
         words = t.split(" ")
         tf = ts + 3
+        if longsentences is True:
+            tf = ts + 4
         if words.__len__() > 8: # If number of words in the line is greater than 8...
             tf = ts+dt # .. the time for which it would be shown is 8 seconds.
+            if longsentences is True:
+                tf = ts + ldt
         else:
-            pass # .. else, it would be visible for 3 seconds only.
+            pass # .. else, it would be visible for 3 seconds only (4 secs if longsentences is True).
         tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='&Haa0000&'>%s</font>\n\n"%(ctr, ts, tf, t)
         ts = tf
         ctr += 1
@@ -862,6 +867,8 @@ if __name__ == "__main__":
                 choppedvideopath = videowithtextpath.split(".")[0] + "_trmd.mp4"
                 ts = computetimespanfromcontent(segmentcontent, longsentences)
                 nextvideostarttime = timeslist[-1] + ts + 0.5 # Start of subtitles will be half a second after the video starts
+                if longsentences is True: # However, if -l or --long is specified on cmdline...
+                    nextvideostarttime = timeslist[-1] + ts + 1.0 # ... start of subtitles will be one second after the video starts
                 trimvideostream(videowithtextpath, choppedvideopath, ts)
                 outpathparts = outpath.split(".")
                 newoutpath = outpathparts[0] + "_tmp.mp4"
@@ -945,7 +952,7 @@ if __name__ == "__main__":
 # $> export GOOGLE_APPLICATION_CREDENTIALS=./storymerge-775cc31bde1f.json
 # Run: python storymerge.py "/home/supmit/work/storymerge/real-input.txt"
 # OR
-# Run: python storymerge.py <story text file path> "<Story title>"
+# Run: python storymerge.py <story text file path> ["Story title"] [-l|--long]
 # Developer: Supriyo Mitra
 # Date: 03-08-2022
 """
