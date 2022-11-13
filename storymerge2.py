@@ -68,8 +68,8 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
     fo = open(tmpfile1, "wb")
     fo.write(file1content)
     fo.close()
-    #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0:v] [0:a] [1:v] [1:a] concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)setdar=16:ceil(ih/2)*2,
-    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0]scale=ceil(iw/2)*2:ceil(ih/2)*2[a];[1]scale=ceil(iw/2)*2:ceil(ih/2)*2[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
+    #cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0]scale=ceil(iw/2)*2:ceil(ih/2)*2[a];[1]scale=ceil(iw/2)*2:ceil(ih/2)*2[b]; [a][0:a][b][1:a]concat=n=2:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
+    cmd = "ffmpeg -y -i %s -i %s -filter_complex \"[0]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1[v0];[1]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1[v1];[v0][0:a:0][v1][1:a:0]concat=n=2:v=1:a=1[v][a]\" -map \"[v]\" -map \"[a]\" -strict -2 -preset slow -pix_fmt yuv420p %s"%(tmpfile1, mp4file_2, mp4outfile)
     errcode = subprocess.call(cmd, shell=True)
     if errcode > 0: # Some error occurred during execution of the command
         return None
@@ -92,6 +92,10 @@ Sentences that end with a question mark or colon are considered to
 be section headers. The remaining text till the next section header
 is the content of this section.
 The first line of the file is the file header.
+However, if the text contains lines starting with a numeric value
+in a sequential manner (the sequence starting from 1), then the text
+is formatted to add some newlines and whitespaces, and the existing
+structure is used.
 The function creates a story file that adheres to the rules specified
 in the function 'readandsegmenttext'.
 """
@@ -105,12 +109,75 @@ def createstoryfile(textfile):
     emptypattern = re.compile("^\s*$")
     parenthesispattern = re.compile("^([^\(]+)(\([^\)]+\))(.*)$", re.DOTALL)
     startperiodpattern = re.compile("^\s*\.")
+    startnumberpattern = re.compile("^(\d+)[\.\s]")
+    endperiodpattern = re.compile("\.$")
     alllines = textcontent.split("\n")
     lctr = 0
     sectionctr = 1
     firstline = True
     sectionlines = []
     headers = []
+    # Check if the text already has a structure to it (with lines starting with numbers)
+    startflag = True
+    structureexists = 0 # We need a value of 3 at least to call the text pre-structured.
+    lastnum = 0
+    skipsecondline = False
+    """
+    We populate the sectionlines list and use the firstline variable assuming that there is a structure
+    to the story. If we later find that there is no such structure, we will simply re-initialize those vars.
+    """
+    for line in alllines:
+        if re.search(emptypattern, line): # lctr shouldn't be incremented for this case
+            continue
+        if lctr == 1 and skipsecondline is True:
+            lctr += 1
+            continue
+        if firstline is True:
+            # If this line doesn't end with period and the next line doesn't start with a number, then join them together.
+            eps = re.search(endperiodpattern, line)
+            if not eps and not re.search(startnumberpattern, alllines[1]):
+                line = line + " " + alllines[1]
+                skipsecondline = True
+            sectionlines.append(maketitlecase(line))
+            sectionlines.append("")
+            firstline = False
+            lctr += 1
+            continue
+        lps = re.search(startnumberpattern, line)
+        if lps and startflag:
+            num = lps.groups()[0]
+            if num == "1":
+                lastnum = int(num)
+                structureexists += 1
+                sectionlines.append("")
+                sectionlines.append(maketitlecase(line))
+                sectionlines.append("")
+            else: # Numbers don't start at 1, so probably it is random
+                break
+            startflag = False
+        elif lps:
+            num = lps.groups()[0]
+            if int(num) == lastnum + 1:
+                lastnum = int(num)
+                structureexists += 1
+                sectionlines.append("")
+                sectionlines.append(maketitlecase(line))
+                sectionlines.append("")
+            else: # So start number of this line is not in sequence. So these are possibly random digits.
+                break
+        else:
+            sectionlines.append(line)
+        lctr += 1
+    if structureexists >= 3: # create storyfile and return
+        textfilename = os.path.basename(textfile)
+        storyfile = textfilename.split(".")[0] + "_story.txt"
+        fs = open(storyfile, "w")
+        fs.write("\n".join(sectionlines))
+        fs.close()
+        return storyfile
+    else:
+        sectionlines = []
+        firstline = True
     for line in alllines:
         line = line.replace("\n", "").replace("\r", "")
         # If there is a parenthesized text in any line, put a comma before it and a comma or period after it.
@@ -966,5 +1033,6 @@ https://superuser.com/questions/277642/how-to-merge-audio-and-video-file-in-ffmp
 https://cloud.google.com/speech-to-text/docs/encoding
 https://www.analyticsvidhya.com/blog/2022/03/keyword-extraction-methods-from-documents-in-nlp/
 https://stackoverflow.com/questions/54699541/how-to-use-googles-text-to-speech-api-in-python
+https://video.stackexchange.com/questions/29059/how-to-concatenate-multiple-videos-while-maintaining-original-aspect-ratio
 """
 
