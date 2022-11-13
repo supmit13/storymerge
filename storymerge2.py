@@ -371,16 +371,22 @@ def maketitlecase(line):
 
 
 def addtextonmp4stream(mp4file, textstring, outputmp4, longsentences=False):
-    textparts = textstring.split(".") # Check if it is multi-sentence text... we create a .srt file  for using it as subtitle text.
+    sentenceendpattern = re.compile("[^\W(Mr)(Dr)(Mrs)(Ex)(St)]\.[^a-zA-Z\d]+", re.DOTALL)
+    textparts = re.split(sentenceendpattern, textstring)
+    ends = sentenceendpattern.findall(textstring)
+    for c in range(0, ends.__len__()):
+        lastchar = ends[c]
+        textparts[c] = textparts[c] + lastchar
+    #textparts = textstring.split(".") # Check if it is multi-sentence text... we create a .srt file  for using it as subtitle text.
     subtitlesfile = "./subtitles.srt"
     fs = open(subtitlesfile, "w")
     ts = 0
     tf = 0
     ctr = 1
     dt = 7
-    dt15 = 12
+    dt15 = 10
     ldt = 9 # dt for longsentences=True
-    ldt15 = 16 # dt15 for longsentences=True
+    ldt15 = 12 # dt15 for longsentences=True
     emptyspacespattern = re.compile("^\s*$")
     for t in textparts:
         if re.search(emptyspacespattern, t):
@@ -1010,7 +1016,7 @@ if __name__ == "__main__":
         os.unlink(outpath)
         os.rename(outvoiceoverpath, outpath)
     except:
-        print("Error: %s"%sys.exc_info()[1].__str__())        
+        print("Error: %s"%sys.exc_info()[1].__str__())
     print("\n\nOutput file: %s"%outpath)
     videodescription = ""
     videotags = []
