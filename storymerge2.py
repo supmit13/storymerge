@@ -17,6 +17,7 @@ import math
 import googleapiclient.discovery
 from pytube import YouTube
 from google.cloud import texttospeech
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Libraries for Youtube video upload
 from apiclient.discovery import build
@@ -87,6 +88,18 @@ def va_concatmp4streams(mp4file_1, mp4file_2, mp4outfile):
 
 
 """
+Generate a header for some text passed as a list of lines.
+At present, we don't care what the header is. This is because
+the header text is used neither in voiceover nor in subtitles.
+Hence, we simply return the first line as the header. Later,
+this might need to be changed, if we start using the header
+anywhere.
+"""
+def generateheader(lines):
+    return lines[0]
+
+
+"""
 Create a storyfile out of a free-form text file:
 Sentences that end with a question mark or colon are considered to
 be section headers. The remaining text till the next section header
@@ -99,9 +112,14 @@ structure is used.
 The function creates a story file that adheres to the rules specified
 in the function 'readandsegmenttext'.
 """
-def createstoryfile(textfile):
+def createstoryfile(textfile, max_section_sentences=3):
     if not os.path.exists(textfile):
         return None
+    try:
+        max_section_sentences = int(max_section_sentences)
+    except:
+        print("Received invalid value for 'maxsentences' parameter. Falling back on default value of 3...")
+        max_section_sentences = 3
     ft = open(textfile, "r")
     textcontent = ft.read()
     ft.close()
@@ -112,6 +130,7 @@ def createstoryfile(textfile):
     startnumberpattern = re.compile("^(\d+)[\.\s]{1}")
     endperiodpattern = re.compile("\.$")
     alllines = textcontent.split("\n")
+    sentence_delim_pattern = re.compile("(\.\.\.)|(\.\s+)|(;\s*)|(\!)|(\?)", re.DOTALL) # A sentence is delimited by one of these characters.
     lctr = 0
     sectionctr = 1
     firstline = True
@@ -128,7 +147,7 @@ def createstoryfile(textfile):
     """
     for line in alllines:
         line = line.replace("\r", "")
-        if re.search(emptypattern, line): # lctr shouldn't be incremented for this case
+        if re.search(emptypattern, line):
             lctr += 1
             continue
         if lctr == 1 and skipsecondline is True:
@@ -152,7 +171,12 @@ def createstoryfile(textfile):
                 lastnum = int(num)
                 structureexists += 1
                 sectionlines.append("")
-                sectionlines.append(maketitlecase(line))
+                # Check how many words are there in a line. If it is less than 10, then this is possibly a header for the section.
+                lwords = line.split(" ")
+                if lwords.__len__() < 10:
+                    sectionlines.append(maketitlecase(line) + ".")
+                else:
+                    sectionlines.append(maketitlecase(line))
                 sectionlines.append("")
             else: # Numbers don't start at 1, so probably it is random
                 break
@@ -163,7 +187,11 @@ def createstoryfile(textfile):
                 lastnum = int(num)
                 structureexists += 1
                 sectionlines.append("")
-                sectionlines.append(maketitlecase(line))
+                lwords = line.split(" ")
+                if lwords.__len__() < 10:
+                    sectionlines.append(maketitlecase(line) + ".")
+                else:
+                    sectionlines.append(maketitlecase(line))
                 sectionlines.append("")
             else: # So start number of this line is not in sequence. So these are possibly random digits.
                 break
@@ -180,7 +208,10 @@ def createstoryfile(textfile):
     else:
         sectionlines = []
         firstline = True
-        lctr = 0
+    lctr = 0
+    section_sentence_ctr = 0
+    pointnumbers = 1
+    multidotspattern = re.compile("(\.\s)+", re.DOTALL)
     for line in alllines:
         line = line.replace("\n", "").replace("\r", "")
         # If there is a parenthesized text in any line, put a comma before it and a comma or period after it.
@@ -194,8 +225,10 @@ def createstoryfile(textfile):
             sectionlines.append(maketitlecase(line))
             sectionlines.append("")
             firstline = False
+            lctr += 1
         elif re.search(headerpattern, line):
-            line = str(sectionctr) + ". " + maketitlecase(line)
+            if not re.search(startnumberpattern, line):
+                line = str(sectionctr) + ". " + maketitlecase(line)
             pps = re.search(parenthesispattern, line)
             if pps:
                 if re.search(startperiodpattern, pps.groups()[2]):
@@ -203,11 +236,15 @@ def createstoryfile(textfile):
                 else:
                     line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
             sectionlines.append("") # section header should have an empty line before it
-            sectionlines.append(maketitlecase(line))
+            sectionlines.append(line)
             sectionlines.append("") # section header should have an empty line after it as well.
             headers.append(line)
             sectionctr += 1
+            section_sentence_ctr = 1
+            lctr += 1
+            pointnumbers += 1
         elif re.search(emptypattern, line):
+            lctr += 1
             continue # skip empty lines
         else:
             # If a line contains 5 or less words, then it is possibly a bulleted point. 
@@ -219,17 +256,75 @@ def createstoryfile(textfile):
                     line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
                 else:
                     line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
+            dps = re.search(sentence_delim_pattern, line)
+            if dps:
+                section_sentence_ctr += 1 # sentence counter is incremented if there is a sentence delimiter character in the line.
+            if section_sentence_ctr > max_section_sentences:
+                lineparts = re.split(sentence_delim_pattern, line) # Split the line into parts
+                line = lineparts[0] # Consider only the first part as the current line.
+                remainder = ""
+                if lineparts.__len__() > 1:
+                    for j in range(1, lineparts.__len__()):
+                        if lineparts[j] is None:
+                            lineparts[j] = ""
+                if lineparts.__len__() > 1:
+                    remainder = ". ".join(lineparts[1:])
+                remainder = multidotspattern.sub("", remainder)
+                # Add or append this to the next line in the alllines list in 
+                # a way so as to be able to use it as a header for next section.
+                if alllines.__len__() > lctr+1: # Adding to next line
+                    alllines[lctr+1] = remainder + " " + alllines[lctr+1]
+                    # Generate text to be used as a header using the remaining lines
+                    hdrtext = generateheader(alllines[lctr+1:])
+                else:
+                    alllines.append(remainder) # So length of 'alllines' is now lctr+2
+                    # This is the last line in the 'alllines' list
+                    hdrtext = generateheader([remainder,])
+                    if not hdrtext: # Header could be None if text is very short
+                        hdrtext = remainder # Make the 'remainder' as header
+                if not re.search(startnumberpattern, hdrtext):
+                    hdrtext = str(pointnumbers) + ". " + maketitlecase(hdrtext) + ":"
+                #print(hdrtext)
+                pointnumbers += 1
+                alllines.insert(lctr+1, hdrtext) 
             words = line.split(" ")
             if words.__len__() <= 5:
                 line += "."
             sectionlines.append(line)
+            lctr += 1
     # At this point we should be having at least 2 header lines. 
     # If that is not the case, then we should do a second pass on
     # the content to identify a few more headers. The minimum 
-    # number of headers is 2 because if it were 1 then we wouldn't
-    # be able to create a new video by concatenating 2 videos, and
-    # that could lead to charges of plagiarism.
-    if headers.__len__() < 2:
+    # number of headers is 3 because if it were any less, then
+    # that could lead to charges of plagiarism. (Basically, we 
+    # could be charged for copying content from some video).
+    alllines = textcontent.split("\n")
+    repairedlines = []
+    # Join all lines ending with comma (,) or hyphen (-) characters. Basically repair lines that are broken.
+    endcommahyphenpattern = re.compile("(,)|(\-)\s*$")
+    linectr = 0
+    for _ in range(0, alllines.__len__()):
+        if alllines.__len__() <= linectr:
+            break
+        line = alllines[linectr]
+        line = line.replace("\r", "").replace("\n", "")
+        hps = re.search(endcommahyphenpattern, line)
+        if hps:
+            i = 2
+            while hps and alllines.__len__() > linectr+i-1:
+                line = line + " " + str(alllines[linectr+i-1])
+                hps = re.search(endcommahyphenpattern, line)
+                i += 1
+            #print(linectr)            
+            linectr += i
+        else:
+            linectr += 1
+        repairedlines.append(line)
+    MAX_ITERATIONS = 10 # We will try to create a story 10 times using the algorithm below.
+    # If we don't succeed, then we will give up.
+    iterctr = 0
+    failed = False
+    while headers.__len__() <= 3:
         """
         Define more rules to identify headers. 
         These rules need to be a bit more inclusive
@@ -252,22 +347,7 @@ def createstoryfile(textfile):
             top10kw.append(item[0])
         # Iterate over each line and identify 5 lines with the max number of keywords.
         kwcounts = [] # Keep in mind that the empty lines would be considered too.
-        alllines = textcontent.split("\n")
-        repairedlines = []
-        # Join all lines ending with comma (,) or hyphen (-) characters. Basically repair lines that are broken.
-        endcommahyphenpattern = re.compile("[,\-]\s*$")
-        linectr = 0
-        for _ in range(0, alllines.__len__()):
-            if alllines.__len__() <= linectr:
-                break
-            line = alllines[linectr]
-            if re.search(endcommahyphenpattern, line) and alllines.__len__() > linectr:
-                line = line + alllines[linectr+1]
-                linectr += 2
-            else:
-                linectr += 1
-            repairedlines.append(line)
-        linectr = 1
+        linectr = 1    
         for line in repairedlines:
             kwcnt = 0
             linelower = line.lower()
@@ -279,17 +359,19 @@ def createstoryfile(textfile):
             kwcounts.append({'count' : kwcnt, 'index' : linectr})
             linectr += 1
         # So now kwcounts is a list of keyword counts indexed by line numbers (starting from line #1)
-        # We will sort them on descending order of values and take the top 4 elements. These 4 lines
+        # We will sort them on descending order of values and take the top 5 elements. These 5 lines
         # would be our header lines. Note: A segment/section should have both 'header' and 'content'.
         # Section header lines should be repeated in content if sections do not have any content after parsing.
         # Also, line number 2 (index 1) has to be used as header.
         kwcounts.sort(reverse=True, key=getcount)
-        top5headerindices = ( kwcounts[0]['index'], kwcounts[1]['index'], kwcounts[2]['index'], kwcounts[3]['index'] )
+        top5headerindices = ( kwcounts[0]['index'], kwcounts[1]['index'], kwcounts[2]['index'], kwcounts[3]['index'], kwcounts[4]['index'] )
         linectr = 0
         pointnumbers = 1
         sectionlines = []
+        headers = []
         firstline = False
-        for line in alllines: # Iterate over all lines again and format the text as per the header lines identified.
+        section_sentence_ctr = 1
+        for line in repairedlines: # Iterate over all lines again and format the text as per the header lines identified.
             line = line.replace("\n", "").replace("\r", "")
             if re.search(emptypattern, line):
                 linectr += 1
@@ -302,10 +384,12 @@ def createstoryfile(textfile):
                         line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
                     else:
                         line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
-                line = str(pointnumbers) + ". " + maketitlecase(line)
+                if not re.search(startnumberpattern, line):
+                    line = str(pointnumbers) + ". " + maketitlecase(line)
                 sectionlines.append("") # section header should have an empty line before it
                 sectionlines.append(line)
                 sectionlines.append("")
+                headers.append(line)
                 pointnumbers += 1
             elif linectr in top5headerindices:
                 pps = re.search(parenthesispattern, line)
@@ -314,11 +398,14 @@ def createstoryfile(textfile):
                         line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
                     else:
                         line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
-                line = str(pointnumbers) + ". " + maketitlecase(line)
+                if not re.search(startnumberpattern, line):
+                    line = str(pointnumbers) + ". " + maketitlecase(line) + ":"
                 sectionlines.append("") # section header should have an empty line before it
                 sectionlines.append(line)
                 sectionlines.append("")
+                headers.append(line)
                 pointnumbers += 1
+                section_sentence_ctr = 1
             else:
                 pps = re.search(parenthesispattern, line)
                 if pps:
@@ -326,12 +413,135 @@ def createstoryfile(textfile):
                         line = pps.groups()[0] + ", " + pps.groups()[1] + pps.groups()[2]
                     else:
                         line = pps.groups()[0] + ", " + pps.groups()[1] + ", " + pps.groups()[2]
+                dps = re.search(sentence_delim_pattern, line)
+                if dps:
+                    section_sentence_ctr += 1 # sentence counter is incremented if there is a sentence delimiter character in the line.
+                if section_sentence_ctr > max_section_sentences:
+                    lineparts = re.split(sentence_delim_pattern, line) # Split the line into parts
+                    line = lineparts[0] # Consider only the first part as the current line.
+                    remainder = ""
+                    if lineparts.__len__() > 1:    
+                        for j in range(1, lineparts.__len__()):
+                            if lineparts[j] is None:
+                                lineparts[j] = ""
+                    if lineparts.__len__() > 1:
+                        remainder = ". ".join(lineparts[1:])
+                    remainder = multidotspattern.sub("", remainder)
+                    # Add or append this to the next line in the alllines list in 
+                    # a way so as to be able to use it as a header for next section.
+                    if repairedlines.__len__() > linectr+1: # Adding to next line
+                        repairedlines[linectr+1] = remainder + " " + repairedlines[linectr+1]
+                        # Generate text to be used as a header using the remaining lines
+                        hdrtext = generateheader(repairedlines[linectr+1:])
+                    else:
+                        repairedlines.append(remainder) # So length of 'alllines' is now lctr+2
+                        # This is the last line in the 'alllines' list
+                        hdrtext = generateheader([remainder,])
+                        if not hdrtext: # Header could be None if text is very short
+                            hdrtext = remainder # Make the 'remainder' as header
+                    if not re.search(startnumberpattern, hdrtext):
+                        hdrtext = str(pointnumbers) + ". " + maketitlecase(hdrtext) + ":"
+                    #print(hdrtext)
+                    pointnumbers += 1
+                    repairedlines.insert(linectr+1, hdrtext) 
                 sectionlines.append(line)
             linectr += 1
+        iterctr += 1
+        if iterctr >= MAX_ITERATIONS:
+            failed = True
+            break
+        # Update repairedlines with sectionlines
+        repairedlines = []
+        for sl in sectionlines:
+            repairedlines.append(sl)
+    # Occassionally, the numeric points could be jumbled up, so we need to set them in sequence. Also,
+    # due to dynamic formatting, sometimes characters like ':', '?' and '!' end up in a line that doesn't
+    # contain any words. These should be removed too.
+    sequencedlines = []
+    numpoint = 1
+    unwantedcharspattern = re.compile("^[^a-zA-Z]+[\:\?\!\.]{1,}\s*", re.DOTALL)
+    for sl in sectionlines:
+        nps = re.search(startnumberpattern, sl)
+        if nps:
+            sl = startnumberpattern.sub("", sl)
+            sl = unwantedcharspattern.sub("", sl)
+            sl = str(numpoint) + "." + sl
+            numpoint += 1
+        sequencedlines.append(sl)
     textfilename = os.path.basename(textfile)
     storyfile = textfilename.split(".")[0] + "_story.txt"
     fs = open(storyfile, "w")
-    fs.write("\n".join(sectionlines))
+    fs.write("\n".join(sequencedlines) + "\n")
+    fs.close()
+    if failed:
+        print("Failed to generate story based on the rules. This may cause the video to be unusable.")
+        storyfile = __postprocessing(storyfile, max_section_sentences)
+    return storyfile
+
+
+def __postprocessing(storyfile, max_section_sentences=3):
+    """
+    This function basically splits very long sections (containing more than 
+    'max_section_sentences' sentences) to short sections containing upto
+    'max_section_sentences' sentences. The first sentence of these sections
+    serve as headers as well as section content.
+    """
+    fs = open(storyfile, "r")
+    story = fs.read()
+    fs.close()
+    startnumberpattern = re.compile("^(\d+)\.\s+")
+    periodpattern = re.compile("\.[^\d\w]+", re.DOTALL)
+    emptypattern = re.compile("^\s*$")
+    alllines = story.split("\n")
+    sections = []
+    linectr = 0
+    repairedsections = []
+    lastnumstr = "0"
+    lastnum = 0
+    for line in alllines:
+        if re.search(emptypattern, line):
+            continue
+        lps = re.search(startnumberpattern, line)
+        if lps: # A section is starting
+            lastnumstr = lps.groups()[0]
+            lastnum = int(lastnumstr)
+            sectioncontent = line
+            sectioncontent = startnumberpattern.sub("", sectioncontent)
+            sectionsentences = re.split(periodpattern, sectioncontent)
+            if sectionsentences.__len__() > max_section_sentences:
+                sentencectr = 0
+                first = True
+                sectionlines = ""
+                for sentence in sectionsentences:
+                    if first:
+                        header = lastnumstr + ". " + sentence
+                        first = False
+                        repairedsections.append(maketitlecase(header))
+                        repairedsections.append("")
+                    sectionlines += sentence + ". "
+                    sentencectr += 1
+                    if sentencectr > max_section_sentences:
+                        repairedsections.append(sectionlines)
+                        repairedsections.append("")
+                        sentencectr = 0
+                        lastnum += 1
+                        lastnumstr = str(lastnum)
+                        sectionlines = ""
+                        first = True
+                repairedsections.append(sectionlines)
+                repairedsections.append("")
+            else:
+                sectioncontent = startnumberpattern.sub("", sectioncontent)
+                sectioncontent = lastnumstr + ". " + sectioncontent
+                repairedsections.append(sectioncontent)
+                repairedsections.append("")
+                lastnum += 1
+                lastnumstr = str(lastnum)
+        else:
+            repairedsections.append(line)
+    repairedstory = "\n".join(repairedsections)
+    fs = open(storyfile, "w")
+    fs.write(repairedstory)
     fs.close()
     return storyfile
 
@@ -408,7 +618,7 @@ def addtextonmp4stream(mp4file, textstring, outputmp4, longsentences=False):
                 tf = ts + ldt15
         else:
             pass # .. else, it would be visible for 3 seconds only (4 secs if longsentences is True).
-        tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='&Haa0000&'>%s</font>\n\n"%(ctr, ts, tf, t)
+        tstr = "%s\n00:00:%s,000 --> 00:00:%s,000\n<font color='#0000aa'>%s</font>\n\n"%(ctr, ts, tf, t)
         ts = tf
         ctr += 1
         fs.write(tstr)
@@ -563,7 +773,7 @@ def getaudiofromtext(textstr):
 
 
 def getaudiofromtext_google(textstr):
-    #wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
+    wavenet_api_key = "5e1a71620551d6fe8f65bc7f0790c52f34bf2f16"
     #wavenet_api_key = "ffcdb1dc5dff7b6ee0a6559b533c04ab6716b874"
     client = texttospeech.TextToSpeechClient()
     synthesis_input = texttospeech.SynthesisInput(text=textstr)
@@ -762,6 +972,12 @@ def __put_youtube_token(token):
     ft.close()
 
 
+"""
+To generate fresh accesstoken, remove/delete both 'storymerge-oauth2.json' file and 'youtube.data' file.
+Then run this function to get the url to authenticate. Follow the directions specified by those pages
+to create a new accesstoken. Once both 'storymerge-oauth2.json' and 'youtube.data' files are created,
+you would be able to upload videos on youtube.
+"""
 def uploadvideo_youtube(videofile, vidtitle, viddesc="", tagslist=["heart", "health"]):
     YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
     CLIENT_SECRETS_FILE = "client_secrets.json"
@@ -788,7 +1004,7 @@ https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
     authorize_url = flow.step1_get_authorize_url()
     if credentials is None or credentials.invalid:
         try:
-            accesstoken = __get_youtube_token()
+            accesstoken = __get_youtube_token() 
             if accesstoken is None:
                 flags = argparser.parse_args(args=[]) # This is so that run_flow doesn't look for command line arguments.
                 credentials = run_flow(flow, storage, flags)
@@ -881,29 +1097,38 @@ def getstorymetadata(storyfile):
 
 
 
-
 if __name__ == "__main__":
-    textfile = os.getcwd() + os.path.sep + "test-input.txt"
     videotitle = ""
     parser = argparse.ArgumentParser()
     parser.add_argument("-l", "--long", help="Adapt for content with long sentences", action="store_true", default=False)
+    parser.add_argument("-s", "--story", help="Create story file", action="store_true", default=False)
+    parser.add_argument("-m", "--maxsentences", help="Maximum sentences in a section. Default is 3", default=3)
     parser.add_argument("textfile", type=str, help="Story file to base the video on")
     parser.add_argument("videotitle", type=str, nargs='?', help="Title of the video", default="")
     args = parser.parse_args()
     longsentences = False
     if args.long:
         longsentences = True
+    createstory = False
+    if args.story:
+        createstory = True
+    maxsentences = 3 # Minimum value is 3. 
+    if int(args.maxsentences) > 3: # If a value below 3 is specified, ignore it.
+        maxsentences = args.maxsentences
     textfile = args.textfile
     if args.videotitle:
         videotitle = args.videotitle
-    # Get textfile and convert it into story format
+    # Get textfile and convert it into story format if 'story' option was specified.
     try:
-        storyfile = createstoryfile(textfile)
+        if createstory: # If 'story' option was specified in commandline, we try to create a story from the given text file.
+            storyfile = createstoryfile(textfile, maxsentences)
+        else: # Otherwise, we consider the textfile as the story file.
+            storyfile = textfile
     except:
         print("Could not generate story file. Error: %s"%sys.exc_info()[1].__str__())
         storyfile = None
     if storyfile is None or not os.path.exists(storyfile):
-        print("No story file created. Exiting...")
+        print("No story file created/found. Can't proceed, quiting...")
         sys.exit()
     segmentslist = readandsegmenttext(storyfile)
     vidpath = os.getcwd() + os.path.sep + "videos"
